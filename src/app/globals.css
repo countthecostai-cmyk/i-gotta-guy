@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+:root {
+  /* Brand — warm, local, confident. Not generic SaaS blue/purple. */
+  --color-ink: #191510;
+  --color-ink-soft: #4a4239;
+  --color-paper: #fbf7f1;
+  --color-paper-raised: #ffffff;
+  --color-line: #e8e0d3;
+
+  --color-brand: #dd5b25;
+  --color-brand-dark: #b4441a;
+  --color-brand-light: #fdece0;
+
+  --color-trust: #1f6f54;
+  --color-trust-dark: #16523e;
+  --color-trust-light: #e3f2ea;
+
+  --color-warn: #b3541e;
+  --color-danger: #b3261e;
+  --color-danger-light: #fbeae8;
+
+  --background: var(--color-paper);
+  --foreground: var(--color-ink);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-ink: var(--color-ink);
+  --color-ink-soft: var(--color-ink-soft);
+  --color-paper: var(--color-paper);
+  --color-paper-raised: var(--color-paper-raised);
+  --color-line: var(--color-line);
+
+  --color-brand: var(--color-brand);
+  --color-brand-dark: var(--color-brand-dark);
+  --color-brand-light: var(--color-brand-light);
+
+  --color-trust: var(--color-trust);
+  --color-trust-dark: var(--color-trust-dark);
+  --color-trust-light: var(--color-trust-light);
+
+  --color-warn: var(--color-warn);
+  --color-danger: var(--color-danger);
+  --color-danger-light: var(--color-danger-light);
+
+  --font-sans: var(--font-inter);
+  --font-display: var(--font-jakarta);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+* {
+  border-color: var(--color-line);
+}
+
+.font-display {
+  font-family: var(--font-display), var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Comfortable minimum touch target for mobile-first taps. Width AND
+   height — a height-only min still leaves icon-only buttons (no text to
+   pad them out horizontally) with a too-narrow tap area. */
+@media (max-width: 767px) {
+  .tap-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}

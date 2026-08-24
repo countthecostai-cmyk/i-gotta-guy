@@ -40,6 +40,11 @@ export function SignupForm({ role, next }: { role: Role; next: string | null }) 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [addressLine1, setAddressLine1] = useState("");
+  const [addressLine2, setAddressLine2] = useState("");
+  const [addressCity, setAddressCity] = useState("");
+  const [addressState, setAddressState] = useState("");
+  const [addressPostalCode, setAddressPostalCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -48,7 +53,13 @@ export function SignupForm({ role, next }: { role: Role; next: string | null }) 
     e.preventDefault();
     setError(null);
     startTransition(async () => {
-      const result = await signUp({ email, password, fullName, role });
+      const result = await signUp({
+        email,
+        password,
+        fullName,
+        role,
+        ...(role === "customer" ? { addressLine1, addressLine2, addressCity, addressState, addressPostalCode } : {}),
+      });
       if ("error" in result) {
         setError(result.error);
         return;
@@ -128,6 +139,77 @@ export function SignupForm({ role, next }: { role: Role; next: string | null }) 
             />
             <p className="mt-1.5 text-xs text-ink-soft">At least 8 characters.</p>
           </div>
+          {role === "customer" && (
+            <div className="space-y-3 border-t border-line pt-4">
+              <div>
+                <p className="text-sm font-medium text-ink">Service address</p>
+                <p className="mt-0.5 text-xs text-ink-soft">
+                  We&rsquo;ll save this as your default so you&rsquo;re not retyping it every time — you can always confirm, change it, or add another when you request a service.
+                </p>
+              </div>
+              <div>
+                <Label htmlFor="addressLine1">Street address</Label>
+                <Input
+                  id="addressLine1"
+                  name="addressLine1"
+                  type="text"
+                  autoComplete="address-line1"
+                  required
+                  value={addressLine1}
+                  onChange={(e) => setAddressLine1(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="addressLine2">Apt, suite, etc. (optional)</Label>
+                <Input
+                  id="addressLine2"
+                  name="addressLine2"
+                  type="text"
+                  autoComplete="address-line2"
+                  value={addressLine2}
+                  onChange={(e) => setAddressLine2(e.target.value)}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="addressCity">City</Label>
+                  <Input
+                    id="addressCity"
+                    name="addressCity"
+                    type="text"
+                    autoComplete="address-level2"
+                    required
+                    value={addressCity}
+                    onChange={(e) => setAddressCity(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="addressState">State</Label>
+                  <Input
+                    id="addressState"
+                    name="addressState"
+                    type="text"
+                    autoComplete="address-level1"
+                    required
+                    value={addressState}
+                    onChange={(e) => setAddressState(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="addressPostalCode">ZIP code</Label>
+                <Input
+                  id="addressPostalCode"
+                  name="addressPostalCode"
+                  type="text"
+                  autoComplete="postal-code"
+                  required
+                  value={addressPostalCode}
+                  onChange={(e) => setAddressPostalCode(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
           <Button type="submit" variant={role === "guy" ? "trust" : "primary"} size="lg" className="w-full" disabled={isPending}>
             {isPending ? "Creating account…" : copy.cta}
           </Button>

@@ -279,7 +279,9 @@ export function RequestForm({
       </div>
 
       <section>
-        <h2 className="mb-2 font-display text-sm font-semibold text-ink">Where do you need this done?</h2>
+        <h2 className="mb-2 font-display text-sm font-semibold text-ink">
+          {addresses.length > 0 ? "Confirm your service address" : "Where do you need this done?"}
+        </h2>
         <AddressPicker
           addresses={addresses}
           selectedId={selectedAddressId}

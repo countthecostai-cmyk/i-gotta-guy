@@ -37,7 +37,12 @@ export function AddressPicker({
           >
             <MapPin className={cn("mt-0.5 h-4 w-4 shrink-0", active ? "text-brand-dark" : "text-ink-soft")} />
             <span className="min-w-0">
-              <span className="block text-sm font-medium text-ink">{addr.label || "Address"}</span>
+              <span className="flex items-center gap-2">
+                <span className="block text-sm font-medium text-ink">{addr.label || "Address"}</span>
+                {addr.is_default && (
+                  <span className="rounded-full bg-trust-light px-2 py-0.5 text-[11px] font-medium text-trust-dark">Default</span>
+                )}
+              </span>
               <span className="block truncate text-sm text-ink-soft">
                 {addr.line1}
                 {addr.line2 ? `, ${addr.line2}` : ""}, {addr.city}, {addr.state} {addr.postal_code}

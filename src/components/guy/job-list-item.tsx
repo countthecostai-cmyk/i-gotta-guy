@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ChevronRight, MapPin, Zap } from "lucide-react";
 import { Card } from "@/components/ui/primitives";
 import { formatCents } from "@/lib/domain/money";
+import { jobDisplayTitle } from "@/lib/domain/job-display";
 import { calculateProviderPayout } from "@/lib/domain/pricing";
 import type { JobStatus } from "@/lib/domain/job-state-machine";
 import { JobStatusBadge } from "./job-status-badge";
@@ -38,7 +39,7 @@ export function JobListItem({ job }: { job: GuyJobWithService }) {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="truncate font-display text-base font-semibold text-ink">
-              {job.services?.name ?? "Service"}
+              {jobDisplayTitle(job.details, job.services?.name ?? "Service")}
             </p>
             <p className="mt-0.5 flex items-center gap-1 text-sm text-ink-soft">
               <MapPin className="h-3.5 w-3.5 shrink-0" />

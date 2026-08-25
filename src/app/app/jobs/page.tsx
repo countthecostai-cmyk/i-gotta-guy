@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { EmptyState } from "@/components/ui/primitives";
 import { JobCard, type JobCardData } from "@/components/customer/job-card";
 import { isInFlight } from "@/components/customer/job-status-groups";
+import { jobDisplayTitle } from "@/lib/domain/job-display";
 import type { JobStatus } from "@/lib/domain/job-state-machine";
 import type { Database } from "@/types/database";
 
@@ -58,7 +59,7 @@ export default async function JobsPage() {
               {
                 id: job.id,
                 status: job.status as JobStatus,
-                serviceName: job.services?.name ?? "Service",
+                serviceName: jobDisplayTitle(job.details, job.services?.name ?? "Service"),
                 serviceSlug: job.services?.slug ?? "",
                 city: job.city,
                 state: job.state,

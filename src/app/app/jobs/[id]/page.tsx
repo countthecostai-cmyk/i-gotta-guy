@@ -14,6 +14,7 @@ import { ReviewForm } from "@/components/customer/review-form";
 import { TipButton } from "@/components/customer/tip-button";
 import { JobPhotosGallery } from "@/components/customer/job-photos-gallery";
 import { formatJobDate, formatShortDate } from "@/components/customer/format";
+import { jobDisplayTitle } from "@/lib/domain/job-display";
 import { canTransition, type JobStatus } from "@/lib/domain/job-state-machine";
 import type { Database, PricingModel } from "@/types/database";
 
@@ -122,7 +123,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   const status = job.status as JobStatus;
   const isDone = DONE_STATUSES.includes(status);
   const canCancel = canTransition(status, "CANCELLED");
-  const serviceName = job.services?.name ?? "Service";
+  const serviceName = jobDisplayTitle(job.details, job.services?.name ?? "Service");
 
   return (
     <div className="space-y-6">

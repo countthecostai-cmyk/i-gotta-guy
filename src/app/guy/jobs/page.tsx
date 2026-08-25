@@ -7,6 +7,7 @@ import { MyOfferCard } from "@/components/guy/my-offer-card";
 import type { OfferThreadData } from "@/components/guy/offer-thread-panel";
 import type { GuyJobWithService } from "@/components/guy/types";
 import { EmptyState } from "@/components/ui/primitives";
+import { jobDisplayTitle } from "@/lib/domain/job-display";
 import type { JobStatus } from "@/lib/domain/job-state-machine";
 
 export const metadata = { title: "Jobs" };
@@ -40,7 +41,7 @@ export default async function GuyJobsPage() {
       // job to find which ones are still open and awaiting action.
       supabase
         .from("quotes")
-        .select("job_id, status, proposed_by, amount_cents, note, created_at, jobs!inner(id, status, guy_id, city, state, postal_code, description, is_asap, scheduled_start, services(name))")
+        .select("job_id, status, proposed_by, amount_cents, note, created_at, jobs!inner(id, status, guy_id, city, state, postal_code, description, is_asap, scheduled_start, details, services(name))")
         .eq("guy_id", user!.id)
         .order("created_at", { ascending: false })
         .limit(200),
@@ -69,7 +70,7 @@ export default async function GuyJobsPage() {
     amount_cents: number;
     note: string | null;
     created_at: string;
-    jobs: { id: string; status: string; guy_id: string | null; city: string; state: string; postal_code: string; description: string | null; is_asap: boolean; scheduled_start: string | null; services: { name: string } | null };
+    jobs: { id: string; status: string; guy_id: string | null; city: string; state: string; postal_code: string; description: string | null; is_asap: boolean; scheduled_start: string | null; details: unknown; services: { name: string } | null };
   };
   const latestByJob = new Map<string, QuoteThreadRow>();
   for (const row of (myQuoteRows as unknown as QuoteThreadRow[] | null) ?? []) {
@@ -117,7 +118,7 @@ export default async function GuyJobsPage() {
                 key={row.job_id}
                 job={{
                   id: row.jobs.id,
-                  serviceName: row.jobs.services?.name ?? "Service",
+                  serviceName: jobDisplayTitle(row.jobs.details, row.jobs.services?.name ?? "Service"),
                   city: row.jobs.city,
                   state: row.jobs.state,
                   postalCode: row.jobs.postal_code,

@@ -6,6 +6,7 @@ import { ServiceBrowser, type CategoryGroup } from "@/components/customer/servic
 import { JobCard, type JobCardData } from "@/components/customer/job-card";
 import type { ServiceLite } from "@/components/customer/service-tile";
 import { IN_FLIGHT_STATUSES } from "@/components/customer/job-status-groups";
+import { jobDisplayTitle } from "@/lib/domain/job-display";
 import type { JobStatus } from "@/lib/domain/job-state-machine";
 import type { Database } from "@/types/database";
 
@@ -21,7 +22,7 @@ function toJobCardData(job: JobWithService): JobCardData {
   return {
     id: job.id,
     status: job.status as JobStatus,
-    serviceName: job.services?.name ?? "Service",
+    serviceName: jobDisplayTitle(job.details, job.services?.name ?? "Service"),
     serviceSlug: job.services?.slug ?? "",
     city: job.city,
     state: job.state,

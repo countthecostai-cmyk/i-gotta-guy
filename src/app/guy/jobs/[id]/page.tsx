@@ -14,6 +14,7 @@ import { JobStatusActions } from "@/components/guy/job-status-actions";
 import { MessageThread, type ThreadMessage } from "@/components/guy/message-thread";
 import { PhotoUploader, type JobPhotoData } from "@/components/guy/photo-uploader";
 import { isSafeImageUrl } from "@/lib/domain/safe-url";
+import { jobDisplayTitle } from "@/lib/domain/job-display";
 import { ReviewForm } from "@/components/guy/review-form";
 import { Card, ErrorState } from "@/components/ui/primitives";
 import type { GuyJobDetail } from "@/components/guy/types";
@@ -92,6 +93,7 @@ export default async function GuyJobDetailPage({ params }: { params: Promise<{ i
 
   const requestFields = (job.services?.request_fields ?? []) as RequestField[];
   const details = job.details as Record<string, unknown>;
+  const displayTitle = jobDisplayTitle(job.details, job.services?.name ?? "Service");
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -99,7 +101,7 @@ export default async function GuyJobDetailPage({ params }: { params: Promise<{ i
 
       <div>
         <div className="flex items-center gap-2">
-          <h1 className="font-display text-2xl font-bold text-ink">{job.services?.name ?? "Service"}</h1>
+          <h1 className="font-display text-2xl font-bold text-ink">{displayTitle}</h1>
           <JobStatusBadge status={job.status as JobStatus} />
         </div>
         <p className="mt-1 flex items-center gap-1 text-sm text-ink-soft">

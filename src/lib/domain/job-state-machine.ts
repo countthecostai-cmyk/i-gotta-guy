@@ -49,7 +49,11 @@ const TRANSITION_ACTORS: Record<string, JobActor[]> = {
   "REQUESTED->MATCHING": ["system"],
   "REQUESTED->CANCELLED": ["customer", "admin"],
   "MATCHING->QUOTED": ["guy"],
-  "MATCHING->ACCEPTED": ["guy"],
+  // "guy" covers the legacy single-offer flow (acceptOpenJob, fixed-price
+  // jobs). "customer" covers the multi-offer negotiation flow, where the
+  // customer accepts one Guy's current offer directly from MATCHING
+  // (jobs never pass through QUOTED while multiple offers are live).
+  "MATCHING->ACCEPTED": ["guy", "customer"],
   "MATCHING->EXPIRED": ["system"],
   "MATCHING->CANCELLED": ["customer", "admin"],
   "QUOTED->ACCEPTED": ["customer"],

@@ -9,10 +9,11 @@ import { JOB_STATUS_LABELS, type JobStatus } from "@/lib/domain/job-state-machin
 import { JobStatusBadge } from "@/components/guy/job-status-badge";
 import { formatJobDate } from "@/components/guy/format";
 import { AcceptJobButton } from "@/components/guy/accept-job-button";
-import { QuoteForm } from "@/components/guy/quote-form";
+import { OfferThreadPanel, type OfferThreadData } from "@/components/guy/offer-thread-panel";
 import { JobStatusActions } from "@/components/guy/job-status-actions";
 import { MessageThread, type ThreadMessage } from "@/components/guy/message-thread";
 import { PhotoUploader, type JobPhotoData } from "@/components/guy/photo-uploader";
+import { isSafeImageUrl } from "@/lib/domain/safe-url";
 import { ReviewForm } from "@/components/guy/review-form";
 import { Card, ErrorState } from "@/components/ui/primitives";
 import type { GuyJobDetail } from "@/components/guy/types";
@@ -40,8 +41,9 @@ export default async function GuyJobDetailPage({ params }: { params: Promise<{ i
 
   const isMine = job.guy_id === user!.id;
   const isOpenPool = job.status === "MATCHING" && job.guy_id === null;
+  const isQuoteJob = job.services?.pricing_model === "quote";
 
-  const [{ data: addonRows }, addressResult, { data: messageRows }, { data: photoRows }, { data: existingReview }] =
+  const [{ data: addonRows }, addressResult, { data: messageRows }, { data: photoRows }, { data: existingReview }, myThreadRows] =
     await Promise.all([
       job.addon_ids.length
         ? supabase.from("service_addons").select("id, name, price_cents").in("id", job.addon_ids)
@@ -50,13 +52,32 @@ export default async function GuyJobDetailPage({ params }: { params: Promise<{ i
       isMine
         ? supabase.from("messages").select("*").eq("job_id", job.id).order("created_at", { ascending: true })
         : Promise.resolve({ data: [] as ThreadMessage[] }),
-      isMine
+      isMine || isOpenPool
         ? supabase.from("job_photos").select("id, url, stage").eq("job_id", job.id).order("created_at", { ascending: true })
         : Promise.resolve({ data: [] as JobPhotoData[] }),
       isMine
         ? supabase.from("reviews").select("*").eq("job_id", job.id).eq("author_id", user!.id).maybeSingle()
         : Promise.resolve({ data: null }),
+      isOpenPool && isQuoteJob
+        ? supabase
+            .from("quotes")
+            .select("status, proposed_by, amount_cents, note")
+            .eq("job_id", job.id)
+            .eq("guy_id", user!.id)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
     ]);
+
+  const myThread: OfferThreadData | null = myThreadRows.data
+    ? {
+        status: myThreadRows.data.status,
+        proposedBy: myThreadRows.data.proposed_by as "guy" | "customer",
+        amountCents: myThreadRows.data.amount_cents,
+        note: myThreadRows.data.note ?? "",
+      }
+    : null;
 
   const earningsCents = calculateProviderPayout({
     serviceAmountCents: job.service_amount_cents,
@@ -171,14 +192,32 @@ export default async function GuyJobDetailPage({ params }: { params: Promise<{ i
         </Card>
       )}
 
+      {isOpenPool && photoRows && photoRows.length > 0 && (
+        <Card className="p-4">
+          <h2 className="mb-3 text-sm font-semibold text-ink">Photos from the customer</h2>
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+            {(photoRows as JobPhotoData[]).filter((p) => isSafeImageUrl(p.url)).map((p) => (
+              <a
+                key={p.id}
+                href={p.url}
+                target="_blank"
+                rel="noreferrer"
+                className="relative block aspect-square overflow-hidden rounded-xl border border-line bg-ink/5"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element -- job photo host is arbitrary storage, not known at build time */}
+                <img src={p.url} alt="Job photo" className="h-full w-full object-cover" />
+              </a>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {isOpenPool && (
         <Card className="p-4">
-          <h2 className="mb-3 text-sm font-semibold text-ink">Ready to take this job?</h2>
-          {job.services?.pricing_model === "quote" ? (
-            <QuoteForm jobId={job.id} />
-          ) : (
-            <AcceptJobButton jobId={job.id} />
-          )}
+          <h2 className="mb-3 text-sm font-semibold text-ink">
+            {isQuoteJob ? "Your offer" : "Ready to take this job?"}
+          </h2>
+          {isQuoteJob ? <OfferThreadPanel jobId={job.id} thread={myThread} /> : <AcceptJobButton jobId={job.id} />}
         </Card>
       )}
 

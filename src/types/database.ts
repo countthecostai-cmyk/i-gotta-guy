@@ -145,8 +145,8 @@ export interface Database {
         { job_id: string; url: string; stage?: string; uploaded_by?: string | null }
       >;
       quotes: Table<
-        { id: string; job_id: string; guy_id: string; amount_cents: number; note: string; status: string; created_at: string },
-        { job_id: string; guy_id: string; amount_cents: number; note?: string; status?: string }
+        { id: string; job_id: string; guy_id: string; amount_cents: number; note: string; status: string; proposed_by: "guy" | "customer"; created_at: string },
+        { job_id: string; guy_id: string; amount_cents: number; note?: string; status?: string; proposed_by?: "guy" | "customer" }
       >;
       payments: Table<
         {

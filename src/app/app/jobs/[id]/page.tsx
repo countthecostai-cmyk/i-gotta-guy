@@ -8,7 +8,7 @@ import { StatusTimeline } from "@/components/customer/status-timeline";
 import { PriceBreakdown } from "@/components/customer/price-breakdown";
 import { GuyCard } from "@/components/customer/guy-card";
 import { MessageThread } from "@/components/customer/message-thread";
-import { QuoteActions } from "@/components/customer/quote-actions";
+import { OffersList, type OfferData } from "@/components/customer/offers-list";
 import { CancelJobButton } from "@/components/customer/cancel-job-button";
 import { ReviewForm } from "@/components/customer/review-form";
 import { TipButton } from "@/components/customer/tip-button";
@@ -65,22 +65,59 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   ]);
   if (historyErr || messagesErr || photosErr) throw new Error("Could not load all the details for this job. Please try again.");
 
+  type QuoteThreadRow = { id: string; guy_id: string; amount_cents: number; note: string | null; status: string; proposed_by: string; created_at: string };
+
   const guyPromise = job.guy_id
     ? supabase.from("public_guy_profiles").select("*").eq("id", job.guy_id).maybeSingle()
     : Promise.resolve({ data: null });
-  const quotePromise =
-    job.status === "QUOTED"
+  const quotesPromise =
+    job.status === "MATCHING" && !job.guy_id
       ? supabase
           .from("quotes")
-          .select("amount_cents, note")
+          .select("id, guy_id, amount_cents, note, status, proposed_by, created_at")
           .eq("job_id", id)
-          .eq("status", "pending")
           .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle()
-      : Promise.resolve({ data: null });
+      : Promise.resolve({ data: [] as unknown[] });
 
-  const [{ data: guy }, { data: pendingQuote }] = await Promise.all([guyPromise, quotePromise]);
+  const [{ data: guy }, { data: allQuotesRaw }] = await Promise.all([guyPromise, quotesPromise]);
+  const allQuotes = allQuotesRaw as unknown as QuoteThreadRow[] | null;
+
+  // `quotes` is an append-only event log — collapse to each Guy's most
+  // recent row (their live thread state) and only surface still-open ones.
+  const latestThreadByGuy = new Map<string, QuoteThreadRow>();
+  for (const q of allQuotes ?? []) {
+    if (!latestThreadByGuy.has(q.guy_id)) latestThreadByGuy.set(q.guy_id, q);
+  }
+  const pendingThreads = [...latestThreadByGuy.values()].filter((q) => q.status === "pending");
+
+  let offers: OfferData[] = [];
+  if (pendingThreads.length > 0) {
+    const { data: offerGuys } = await supabase
+      .from("public_guy_profiles")
+      .select("*")
+      .in("id", pendingThreads.map((t) => t.guy_id));
+    const guyById = new Map((offerGuys ?? []).map((g) => [g.id, g]));
+    offers = pendingThreads
+      .map((t) => {
+        const g = guyById.get(t.guy_id);
+        if (!g) return null;
+        return {
+          guyId: t.guy_id,
+          fullName: g.full_name,
+          avatarUrl: g.avatar_url,
+          avgRating: g.avg_rating,
+          ratingCount: g.rating_count,
+          completedJobsCount: g.completed_jobs_count,
+          identityVerified: g.identity_verified,
+          backgroundCheckStatus: g.background_check_status,
+          amountCents: t.amount_cents,
+          note: t.note ?? "",
+          proposedBy: t.proposed_by as "guy" | "customer",
+          createdAt: t.created_at,
+        } satisfies OfferData;
+      })
+      .filter((o): o is OfferData => o !== null);
+  }
 
   const status = job.status as JobStatus;
   const isDone = DONE_STATUSES.includes(status);
@@ -102,9 +139,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         <JobStatusBadge status={status} />
       </div>
 
-      {pendingQuote && (
-        <QuoteActions jobId={job.id} amountCents={pendingQuote.amount_cents} note={pendingQuote.note ?? ""} />
-      )}
+      {offers.length > 0 && <OffersList jobId={job.id} offers={offers} />}
 
       <Card className="divide-y divide-line p-0">
         <div className="flex items-start gap-3 p-4">

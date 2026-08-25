@@ -1,18 +1,14 @@
-"use client";
-
 import Link from "next/link";
-import { useState } from "react";
 import { MapPin, Zap } from "lucide-react";
 import { Card } from "@/components/ui/primitives";
 import { formatCents } from "@/lib/domain/money";
 import { calculateProviderPayout } from "@/lib/domain/pricing";
 import { formatJobDate } from "./format";
 import { AcceptJobButton } from "./accept-job-button";
-import { QuoteForm } from "./quote-form";
+import { OfferThreadPanel, type OfferThreadData } from "./offer-thread-panel";
 import type { GuyJobWithService } from "./types";
 
-export function OpenJobCard({ job }: { job: GuyJobWithService }) {
-  const [showQuote, setShowQuote] = useState(false);
+export function OpenJobCard({ job, myThread = null }: { job: GuyJobWithService; myThread?: OfferThreadData | null }) {
   const isQuote = job.services?.pricing_model === "quote";
   const earningsCents = calculateProviderPayout({
     serviceAmountCents: job.service_amount_cents,
@@ -55,21 +51,7 @@ export function OpenJobCard({ job }: { job: GuyJobWithService }) {
       </Link>
 
       <div className="mt-3">
-        {isQuote ? (
-          showQuote ? (
-            <QuoteForm jobId={job.id} onCancel={() => setShowQuote(false)} />
-          ) : (
-            <button
-              type="button"
-              onClick={() => setShowQuote(true)}
-              className="tap-target w-full rounded-full bg-trust px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-trust-dark"
-            >
-              Send a quote
-            </button>
-          )
-        ) : (
-          <AcceptJobButton jobId={job.id} />
-        )}
+        {isQuote ? <OfferThreadPanel jobId={job.id} thread={myThread} /> : <AcceptJobButton jobId={job.id} />}
       </div>
     </Card>
   );

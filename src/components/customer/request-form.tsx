@@ -10,11 +10,13 @@ import { calculatePricing, type PlatformFeeRule } from "@/lib/domain/pricing";
 import { formatCents } from "@/lib/domain/money";
 import { createJobRequest } from "@/lib/actions/jobs";
 import { ActionError } from "@/lib/actions/errors";
+import { createClient } from "@/lib/supabase/client";
 import type { Database, RequestField } from "@/types/database";
 import { CategoryIcon } from "./service-icon";
 import { AddressPicker } from "./address-picker";
 import { DynamicFieldInput } from "./request-field-input";
 import { PriceBreakdown } from "./price-breakdown";
+import { RequestPhotoPicker, type PickedPhoto } from "./request-photo-picker";
 import { inferQuantity, defaultDetailsValue, validateRequiredFields } from "./request-fields";
 
 type Address = Database["public"]["Tables"]["addresses"]["Row"];
@@ -75,6 +77,7 @@ export function RequestForm({
     return { ...base, ...(prefill?.details ?? {}) };
   });
   const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>(prefill?.addonIds ?? []);
+  const [photos, setPhotos] = useState<PickedPhoto[]>([]);
   const [description, setDescription] = useState(prefill?.description ?? "");
   const [isAsap, setIsAsap] = useState(true);
   const defaultScheduled = useMemo(() => {
@@ -149,6 +152,44 @@ export function RequestForm({
     setStep("review");
   }
 
+  /**
+   * Uploads every picked photo to Storage and attaches it to the newly
+   * created job. Runs after `createJobRequest` returns a real jobId (the
+   * `job_photos_insert` RLS policy requires the job to already exist and
+   * belong to the caller). Best-effort: one failed photo doesn't block the
+   * others or stop the customer from reaching their job page — the request
+   * itself already succeeded.
+   */
+  async function uploadPhotos(jobId: string) {
+    if (photos.length === 0) return;
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    let failures = 0;
+    for (const photo of photos) {
+      try {
+        const path = `${jobId}/request-${Date.now()}-${photo.file.name}`;
+        const { error: uploadErr } = await supabase.storage.from("job-photos").upload(path, photo.file);
+        if (uploadErr) throw new Error(uploadErr.message);
+        const { data: pub } = supabase.storage.from("job-photos").getPublicUrl(path);
+        const { error: insertErr } = await supabase
+          .from("job_photos")
+          .insert({ job_id: jobId, url: pub.publicUrl, stage: "request", uploaded_by: user?.id ?? null });
+        if (insertErr) throw new Error(insertErr.message);
+      } catch {
+        failures += 1;
+      }
+    }
+    if (failures > 0) {
+      // The request itself already succeeded — don't block navigation to
+      // the job page over a photo upload hiccup. Just log it; a missing
+      // photo is recoverable (the customer can message the Guy), a
+      // vanished job request is not.
+      console.error(`[uploadPhotos] ${failures}/${photos.length} photo upload(s) failed for job ${jobId}`);
+    }
+  }
+
   async function handleSubmit() {
     if (!selectedAddressId || submitting) return;
     setSubmitting(true);
@@ -165,6 +206,8 @@ export function RequestForm({
         scheduledStart: isAsap ? null : new Date(scheduledLocal).toISOString(),
         promotionCode: promoCode.trim() || null,
       });
+
+      await uploadPhotos(result.jobId);
 
       if (result.redirectUrl) {
         window.location.href = result.redirectUrl;
@@ -231,6 +274,19 @@ export function RequestForm({
                   </li>
                 ))}
               </ul>
+            </div>
+          )}
+          {photos.length > 0 && (
+            <div className="p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-ink-soft">Photos ({photos.length})</p>
+              <div className="mt-2 grid grid-cols-4 gap-2 sm:grid-cols-6">
+                {photos.map((p) => (
+                  <div key={p.id} className="aspect-square overflow-hidden rounded-lg border border-line bg-paper">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- local blob preview, not a build-time-known host */}
+                    <img src={p.previewUrl} alt="Attached photo" className="h-full w-full object-cover" />
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </Card>
@@ -366,6 +422,11 @@ export function RequestForm({
             onChange={(e) => setScheduledLocal(e.target.value)}
           />
         )}
+      </section>
+
+      <section>
+        <h2 className="mb-2 font-display text-sm font-semibold text-ink">Photos (optional)</h2>
+        <RequestPhotoPicker photos={photos} onChange={setPhotos} />
       </section>
 
       <section>

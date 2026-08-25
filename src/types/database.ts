@@ -57,7 +57,7 @@ export interface Database {
           completed_jobs_count: number; applied_at: string; approved_at: string | null;
           created_at: string; updated_at: string;
         },
-        { id: string; status?: GuyStatus; bio?: string; years_experience?: number | null }
+        { id: string; status?: GuyStatus; bio?: string; years_experience?: number | null; approved_at?: string | null }
       >;
       addresses: Table<
         {

@@ -320,18 +320,46 @@ export async function acceptOpenJob(jobId: string) {
 
 const submitQuoteSchema = z.object({ jobId: z.string().uuid(), amountCents: z.number().int().positive(), note: z.string().max(1000).default("") });
 
-/** A Guy submits a custom quote for a 'quote' pricing-model job. */
+/**
+ * Fetches the current state of one Guy's offer thread on a job — the most
+ * recent `quotes` row for that (job, guy) pair. `quotes` is an append-only
+ * event log: every new offer or counter-offer is a new row, so the latest
+ * row's `status`/`amount_cents`/`proposed_by` is the thread's live state.
+ */
+async function getLatestThread(admin: ReturnType<typeof createAdminClient>, jobId: string, guyId: string) {
+  const { data } = await admin
+    .from("quotes")
+    .select("*")
+    .eq("job_id", jobId)
+    .eq("guy_id", guyId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data;
+}
+
+/**
+ * A Guy submits a price for a 'quote' pricing-model job — either their
+ * first offer, or a counter-offer after the customer countered them.
+ * Multiple Guys can each have their own live offer thread on the same job
+ * at once: unlike the old single-shot flow, this does NOT claim the job or
+ * move its status — the job stays MATCHING (visible to other eligible
+ * Guys, and to the customer as one of several comparable offers) until the
+ * customer accepts one via `acceptQuote`.
+ */
 export async function submitQuote(input: z.infer<typeof submitQuoteSchema>) {
   const parsed = submitQuoteSchema.parse(input);
   const { supabase, user } = await requireUser();
   const admin = createAdminClient();
 
   const { data: guy } = await supabase.from("guy_profiles").select("id, status").eq("id", user.id).single();
-  if (!guy || guy.status !== "approved") throw new ActionError("Only approved Guys can submit quotes.");
+  if (!guy || guy.status !== "approved") throw new ActionError("Only approved Guys can submit offers.");
 
   const { data: job } = await supabase.from("jobs").select("*").eq("id", parsed.jobId).single();
   if (!job) throw new ActionError("Job not found.");
-  assertTransition(job.status as JobStatus, "QUOTED", "guy");
+  if (job.status !== "MATCHING" || job.guy_id !== null) {
+    throw new ActionError("This job is no longer open for offers.");
+  }
 
   // Same admin-client-bypasses-RLS reasoning as acceptOpenJob above.
   const { data: eligible } = await supabase
@@ -343,86 +371,228 @@ export async function submitQuote(input: z.infer<typeof submitQuoteSchema>) {
     .maybeSingle();
   if (!eligible) throw new ActionError("You don't currently offer this service.");
 
-  const { data: claimed, error } = await admin
-    .from("jobs")
-    .update({ status: "QUOTED", guy_id: user.id, service_amount_cents: parsed.amountCents })
-    .eq("id", parsed.jobId)
-    .eq("status", "MATCHING")
-    .is("guy_id", null)
-    .select()
-    .maybeSingle();
-  if (error || !claimed) throw new ActionError("This job already has a quote from another Guy.");
+  const thread = await getLatestThread(admin, parsed.jobId, user.id);
+  const isCounter = Boolean(thread && thread.status === "pending");
 
-  await admin.from("quotes").insert({ job_id: parsed.jobId, guy_id: user.id, amount_cents: parsed.amountCents, note: parsed.note });
-  await logStatus(admin, parsed.jobId, "QUOTED", user.id, parsed.note);
-  await notify(job.customer_id, "job_matching", "You got a quote!", "A Guy sent you a price for your job.", { jobId: parsed.jobId });
+  const { error } = await admin
+    .from("quotes")
+    .insert({ job_id: parsed.jobId, guy_id: user.id, amount_cents: parsed.amountCents, note: parsed.note, status: "pending", proposed_by: "guy" });
+  if (error) throw new ActionError("Could not send your offer. Please try again.");
+
+  await notify(
+    job.customer_id,
+    "job_matching",
+    isCounter ? "Updated offer" : "You got a new offer!",
+    isCounter ? "A Guy sent a revised price for your job." : "A Guy sent you a price for your job.",
+    { jobId: parsed.jobId },
+  );
   revalidatePath(`/app/jobs/${parsed.jobId}`);
+  revalidatePath(`/guy/jobs/${parsed.jobId}`);
+  revalidatePath("/guy/jobs");
   return { success: true };
 }
 
-/** Customer accepts a quote and pays. */
-export async function acceptQuote(jobId: string) {
+const customerCounterSchema = z.object({ jobId: z.string().uuid(), guyId: z.string().uuid(), amountCents: z.number().int().positive(), note: z.string().max(1000).default("") });
+
+/** Customer proposes a different price on a specific Guy's open offer thread. */
+export async function customerCounterOffer(input: z.infer<typeof customerCounterSchema>) {
+  const parsed = customerCounterSchema.parse(input);
   const { supabase, user } = await requireUser();
   const admin = createAdminClient();
 
-  const { data: job } = await supabase.from("jobs").select("*").eq("id", jobId).eq("customer_id", user.id).single();
+  const { data: job } = await supabase.from("jobs").select("*").eq("id", parsed.jobId).eq("customer_id", user.id).single();
+  if (!job) throw new ActionError("Job not found.");
+  if (job.status !== "MATCHING" || job.guy_id !== null) throw new ActionError("This job is no longer open for negotiation.");
+
+  const thread = await getLatestThread(admin, parsed.jobId, parsed.guyId);
+  if (!thread || thread.status !== "pending") throw new ActionError("This offer is no longer open — it may have been withdrawn or declined.");
+
+  const { error } = await admin
+    .from("quotes")
+    .insert({ job_id: parsed.jobId, guy_id: parsed.guyId, amount_cents: parsed.amountCents, note: parsed.note, status: "pending", proposed_by: "customer" });
+  if (error) throw new ActionError("Could not send your counter-offer. Please try again.");
+
+  await notify(parsed.guyId, "job_matching", "Customer countered your offer", "Take a look at their proposed price.", { jobId: parsed.jobId });
+  revalidatePath(`/app/jobs/${parsed.jobId}`);
+  revalidatePath(`/guy/jobs/${parsed.jobId}`);
+  return { success: true };
+}
+
+const guyThreadSchema = z.object({ jobId: z.string().uuid() });
+const declineOfferSchema = z.object({ jobId: z.string().uuid(), guyId: z.string().uuid() });
+
+/** Customer declines one specific Guy's offer — ends that thread only; the job and other Guys' offers are untouched. */
+export async function declineOffer(input: z.infer<typeof declineOfferSchema>) {
+  const parsed = declineOfferSchema.parse(input);
+  const { supabase, user } = await requireUser();
+  const admin = createAdminClient();
+
+  const { data: job } = await supabase.from("jobs").select("*").eq("id", parsed.jobId).eq("customer_id", user.id).single();
+  if (!job) throw new ActionError("Job not found.");
+  if (job.status !== "MATCHING") throw new ActionError("This job is no longer open for negotiation.");
+
+  const thread = await getLatestThread(admin, parsed.jobId, parsed.guyId);
+  if (!thread || thread.status !== "pending") throw new ActionError("This offer is no longer open.");
+
+  const { error } = await admin.from("quotes").update({ status: "declined" }).eq("id", thread.id);
+  if (error) throw new ActionError("Could not decline this offer. Please try again.");
+
+  await notify(parsed.guyId, "job_declined", "Offer declined", "The customer declined your offer on this job.", { jobId: parsed.jobId });
+  revalidatePath(`/app/jobs/${parsed.jobId}`);
+  revalidatePath(`/guy/jobs/${parsed.jobId}`);
+  return { success: true };
+}
+
+/** Guy declines the customer's current counter-offer — ends this thread; the Guy can still send a fresh offer later via submitQuote. */
+export async function guyDeclineOffer(input: z.infer<typeof guyThreadSchema>) {
+  const parsed = guyThreadSchema.parse(input);
+  const { supabase, user } = await requireUser();
+  const admin = createAdminClient();
+
+  const { data: job } = await supabase.from("jobs").select("*").eq("id", parsed.jobId).single();
+  if (!job) throw new ActionError("Job not found.");
+
+  const thread = await getLatestThread(admin, parsed.jobId, user.id);
+  if (!thread || thread.status !== "pending") throw new ActionError("There's no open offer to decline on this job.");
+
+  const { error } = await admin.from("quotes").update({ status: "declined" }).eq("id", thread.id);
+  if (error) throw new ActionError("Could not decline the customer's offer. Please try again.");
+
+  await notify(job.customer_id, "job_declined", "Offer declined", "A Guy declined your counter-offer.", { jobId: parsed.jobId });
+  revalidatePath(`/app/jobs/${parsed.jobId}`);
+  revalidatePath(`/guy/jobs/${parsed.jobId}`);
+  return { success: true };
+}
+
+/** Guy withdraws their own currently-outstanding offer (before the customer has responded to it). */
+export async function withdrawOffer(input: z.infer<typeof guyThreadSchema>) {
+  const parsed = guyThreadSchema.parse(input);
+  const { user } = await requireUser();
+  const admin = createAdminClient();
+
+  const thread = await getLatestThread(admin, parsed.jobId, user.id);
+  if (!thread || thread.status !== "pending" || thread.proposed_by !== "guy") {
+    throw new ActionError("You don't have an outstanding offer to withdraw on this job.");
+  }
+
+  const { error } = await admin.from("quotes").update({ status: "withdrawn" }).eq("id", thread.id);
+  if (error) throw new ActionError("Could not withdraw your offer. Please try again.");
+
+  revalidatePath(`/guy/jobs/${parsed.jobId}`);
+  revalidatePath("/guy/jobs");
+  return { success: true };
+}
+
+const acceptQuoteSchema = z.object({ jobId: z.string().uuid(), guyId: z.string().uuid() });
+
+/**
+ * Customer accepts one Guy's current offer and pays. Atomically claims the
+ * job for that Guy (guarding against a race with another accept or another
+ * Guy's concurrent claim), then declines every other Guy's still-open
+ * offer thread on this job so nothing is left stale.
+ */
+export async function acceptQuote(input: z.infer<typeof acceptQuoteSchema>) {
+  const parsed = acceptQuoteSchema.parse(input);
+  const { supabase, user } = await requireUser();
+  const admin = createAdminClient();
+
+  const { data: job } = await supabase.from("jobs").select("*").eq("id", parsed.jobId).eq("customer_id", user.id).single();
   if (!job) throw new ActionError("Job not found.");
   assertTransition(job.status as JobStatus, "ACCEPTED", "customer");
+
+  const thread = await getLatestThread(admin, parsed.jobId, parsed.guyId);
+  if (!thread || thread.status !== "pending") throw new ActionError("This offer is no longer available — it may have just been withdrawn, declined, or changed.");
+  const acceptedAmountCents = thread.amount_cents;
 
   const { data: service } = await supabase.from("services").select("name").eq("id", job.service_id).maybeSingle();
 
   const feeRule = await getFeeRule(admin, job.service_id);
   const pricing = calculatePricing({
     service: { pricing_model: "quote", base_price_cents: 0, min_price_cents: 0 },
-    quotedAmountCents: job.service_amount_cents,
+    quotedAmountCents: acceptedAmountCents,
     feeRule,
   });
 
+  // Atomic claim BEFORE charging: only succeeds if the job is still
+  // unassigned, preventing two accepted offers (a double-click, or a race
+  // between two accepts on two different Guys) from both winning the job —
+  // and ensuring we never charge the customer for a job that turns out to
+  // already be claimed.
+  const { data: claimed, error: claimErr } = await admin
+    .from("jobs")
+    .update({ status: "ACCEPTED", guy_id: parsed.guyId, service_amount_cents: acceptedAmountCents, platform_fee_cents: pricing.platformFeeCents, total_cents: pricing.totalCents })
+    .eq("id", parsed.jobId)
+    .eq("status", "MATCHING")
+    .is("guy_id", null)
+    .select()
+    .maybeSingle();
+  if (claimErr || !claimed) throw new ActionError("This job was just accepted for another Guy — please refresh.");
+
   const processor = getPaymentProcessor();
   const charge = await processor.chargeCustomer({
-    jobId, customerId: user.id, amountCents: pricing.totalCents,
+    jobId: parsed.jobId, customerId: user.id, amountCents: pricing.totalCents,
     description: `${service?.name ?? "Service"} — I Gotta Guy`,
   });
 
   const { data: payment } = await admin
     .from("payments")
-    .insert({ job_id: jobId, customer_id: user.id, amount_cents: pricing.totalCents, status: charge.status === "succeeded" ? "succeeded" : "pending", processor: processor.name, processor_payment_intent_id: charge.processorPaymentIntentId, processor_fee_cents: charge.processorFeeCents })
+    .insert({ job_id: parsed.jobId, customer_id: user.id, amount_cents: pricing.totalCents, status: charge.status === "succeeded" ? "succeeded" : "pending", processor: processor.name, processor_payment_intent_id: charge.processorPaymentIntentId, processor_fee_cents: charge.processorFeeCents })
     .select()
     .single();
 
-  if (!charge.success) throw new ActionError(charge.failureReason ?? "Payment failed.");
-  if (charge.redirectUrl) return { redirectUrl: charge.redirectUrl };
+  if (!charge.success) {
+    // Payment failed after we'd already claimed the job — release the
+    // claim so the job reopens for negotiation instead of getting stuck
+    // ACCEPTED with no successful payment behind it.
+    await admin.from("jobs").update({ status: "MATCHING", guy_id: null }).eq("id", parsed.jobId).eq("status", "ACCEPTED");
+    await logStatus(admin, parsed.jobId, "MATCHING", null, `system: payment failed, reopened${charge.failureReason ? ` — ${charge.failureReason}` : ""}`);
+    throw new ActionError(charge.failureReason ?? "Payment failed.");
+  }
+  if (charge.redirectUrl) {
+    // Live processor requires a hosted checkout redirect. The job is
+    // already claimed as ACCEPTED for this Guy above (so it stops showing
+    // as open), but the offer thread and competing threads aren't
+    // finalized until the checkout completes — the Stripe webhook only
+    // finalizes the legacy REQUESTED/QUOTED paths today, so wiring that up
+    // is tracked separately for whenever live Stripe payments are enabled.
+    return { redirectUrl: charge.redirectUrl };
+  }
 
-  await recordLedger(admin, jobId, payment?.id ?? null, [
+  await admin.from("quotes").update({ status: "accepted" }).eq("id", thread.id);
+  await logStatus(admin, parsed.jobId, "ACCEPTED", user.id);
+
+  // Close out every other Guy's still-open offer thread on this job.
+  const { data: otherOpenThreads } = await admin
+    .from("quotes")
+    .select("id, guy_id, created_at")
+    .eq("job_id", parsed.jobId)
+    .eq("status", "pending")
+    .neq("guy_id", parsed.guyId)
+    .order("created_at", { ascending: false });
+  const latestByGuy = new Map<string, { id: string }>();
+  for (const row of otherOpenThreads ?? []) {
+    if (!latestByGuy.has(row.guy_id)) latestByGuy.set(row.guy_id, { id: row.id });
+  }
+  const idsToDecline = [...latestByGuy.values()].map((r) => r.id);
+  if (idsToDecline.length) {
+    await admin.from("quotes").update({ status: "declined" }).in("id", idsToDecline);
+    for (const otherGuyId of latestByGuy.keys()) {
+      await notify(otherGuyId, "job_declined", "Job filled", "The customer went with another Guy for this job.", { jobId: parsed.jobId });
+    }
+  }
+
+  await notify(parsed.guyId, "job_accepted", "Offer accepted!", "The customer accepted your offer. Time to get it scheduled.", { jobId: parsed.jobId });
+
+  await recordLedger(admin, parsed.jobId, payment?.id ?? null, [
     { type: "charge", account: "customer", amount_cents: pricing.totalCents, description: "Customer payment" },
     { type: "platform_fee", account: "platform", amount_cents: pricing.platformFeeCents, description: "Platform fee" },
     { type: "processor_fee", account: "platform", amount_cents: charge.processorFeeCents, description: "Payment processor fee" },
   ]);
 
-  await admin
-    .from("jobs")
-    .update({ status: "ACCEPTED", platform_fee_cents: pricing.platformFeeCents, total_cents: pricing.totalCents })
-    .eq("id", jobId);
-  await logStatus(admin, jobId, "ACCEPTED", user.id);
-  if (job.guy_id) await notify(job.guy_id, "job_accepted", "Quote accepted!", "The customer accepted your quote. Time to get it scheduled.", { jobId });
-
-  revalidatePath(`/app/jobs/${jobId}`);
+  revalidatePath(`/app/jobs/${parsed.jobId}`);
+  revalidatePath(`/guy/jobs/${parsed.jobId}`);
+  revalidatePath("/guy/jobs");
   return { redirectUrl: null };
-}
-
-export async function declineQuote(jobId: string) {
-  const { supabase, user } = await requireUser();
-  const admin = createAdminClient();
-  const { data: job } = await supabase.from("jobs").select("*").eq("id", jobId).eq("customer_id", user.id).single();
-  if (!job) throw new ActionError("Job not found.");
-  assertTransition(job.status as JobStatus, "DECLINED", "customer");
-
-  await admin.from("jobs").update({ status: "MATCHING", guy_id: null }).eq("id", jobId);
-  await logStatus(admin, jobId, "DECLINED", user.id);
-  await logStatus(admin, jobId, "MATCHING", null, "system: reopened after decline");
-  if (job.guy_id) await notify(job.guy_id, "job_declined", "Quote declined", "The customer declined your quote.", { jobId });
-  revalidatePath(`/app/jobs/${jobId}`);
-  return { success: true };
 }
 
 const STATUS_UPDATE_ACTOR_STATUSES: JobStatus[] = ["SCHEDULED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS", "COMPLETED"];

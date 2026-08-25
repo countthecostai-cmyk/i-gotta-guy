@@ -15,9 +15,25 @@ async function requireUser() {
 const applySchema = z.object({
   bio: z.string().max(2000).default(""),
   yearsExperience: z.number().int().min(0).max(80).nullable().optional(),
+  serviceIds: z.array(z.string().uuid()).min(1, "Pick at least one service you offer."),
 });
 
-/** Apply to become a Guy. Creates a pending guy_profiles row for admin review. */
+/**
+ * Apply to become a Guy. Approval is instant — no admin review gate — so a
+ * new applicant can start seeing and accepting jobs immediately. Trust &
+ * safety enforcement (identity verification, background-check status,
+ * suspension, rejection for cause) is handled separately and doesn't block
+ * this initial step; `guy_profiles.status` still supports "pending" for any
+ * future manual-review path, and admins can still suspend/reject an
+ * already-approved Guy at any time.
+ *
+ * Selecting at least one service here (not just approving the account) is
+ * what actually makes a new Guy "on the lookout for jobs" — `guy_services`
+ * rows require an existing `guy_profiles` row (FK), so they can only be
+ * created after this upsert, in the same action, not via the reusable
+ * `ServicesManager` component (which persists one row per click and is
+ * meant for the profile page after a Guy already exists).
+ */
 export async function applyToBecomeGuy(input: z.infer<typeof applySchema>) {
   const parsed = applySchema.parse(input);
   const { supabase, user } = await requireUser();
@@ -25,12 +41,35 @@ export async function applyToBecomeGuy(input: z.infer<typeof applySchema>) {
   await supabase.from("profiles").update({ role: "guy" }).eq("id", user.id);
 
   const { error } = await supabase.from("guy_profiles").upsert(
-    { id: user.id, status: "pending", bio: parsed.bio, years_experience: parsed.yearsExperience ?? null },
+    {
+      id: user.id,
+      status: "approved",
+      bio: parsed.bio,
+      years_experience: parsed.yearsExperience ?? null,
+      approved_at: new Date().toISOString(),
+    },
     { onConflict: "id" },
   );
   if (error) throw new ActionError(error.message);
 
+  // Validate the chosen service ids are real, active services before
+  // enrolling — a client could otherwise submit arbitrary uuids.
+  const { data: validServices, error: servicesErr } = await supabase
+    .from("services")
+    .select("id")
+    .eq("active", true)
+    .in("id", parsed.serviceIds);
+  if (servicesErr) throw new ActionError(servicesErr.message);
+  const validIds = new Set((validServices ?? []).map((s) => s.id));
+  const rows = parsed.serviceIds.filter((id) => validIds.has(id)).map((serviceId) => ({ guy_id: user.id, service_id: serviceId, active: true }));
+
+  if (rows.length > 0) {
+    const { error: gsError } = await supabase.from("guy_services").upsert(rows, { onConflict: "guy_id,service_id" });
+    if (gsError) throw new ActionError(gsError.message);
+  }
+
   revalidatePath("/guy");
+  revalidatePath("/guy/profile");
   return { success: true };
 }
 

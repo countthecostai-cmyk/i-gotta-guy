@@ -10,7 +10,15 @@ import { AuthCard, AuthError, AuthSuccess } from "@/app/(auth)/_components/auth-
 import { MagicLinkCallback } from "@/app/(auth)/_components/magic-link-callback";
 import { isSafeInternalPath, roleHome } from "@/app/(auth)/_components/resolve-redirect";
 
-export function LoginForm({ next, code }: { next: string | null; code: string | null }) {
+export function LoginForm({
+  next,
+  code,
+  tokenHash,
+}: {
+  next: string | null;
+  code: string | null;
+  tokenHash: string | null;
+}) {
   const router = useRouter();
   const [mode, setMode] = useState<"password" | "magic">("password");
   const [email, setEmail] = useState("");
@@ -27,7 +35,7 @@ export function LoginForm({ next, code }: { next: string | null; code: string | 
   // Supabase's /verify redirects with either a code or a hash error, never
   // both).
   useEffect(() => {
-    if (code) return;
+    if (code || tokenHash) return;
     if (typeof window === "undefined" || !window.location.hash) return;
     const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     if (!params.get("error_description") && !params.get("error")) return;
@@ -39,7 +47,7 @@ export function LoginForm({ next, code }: { next: string | null; code: string | 
       // Scrub the raw Supabase error text out of the address bar.
       window.history.replaceState(null, "", window.location.pathname + window.location.search);
     });
-  }, [code]);
+  }, [code, tokenHash]);
 
   function onSubmitPassword(e: React.FormEvent) {
     e.preventDefault();
@@ -69,13 +77,13 @@ export function LoginForm({ next, code }: { next: string | null; code: string | 
     });
   }
 
-  // A magic link brought the browser back here with a code to exchange —
-  // take over the whole card with the callback handler instead of showing
-  // the form again.
-  if (code) {
+  // A magic link brought the browser back here with a credential to
+  // redeem — take over the whole card with the callback handler instead of
+  // showing the form again.
+  if (code || tokenHash) {
     return (
       <AuthCard title="Signing you in" subtitle="Just a moment.">
-        <MagicLinkCallback code={code} next={next} />
+        <MagicLinkCallback code={code} tokenHash={tokenHash} next={next} />
       </AuthCard>
     );
   }

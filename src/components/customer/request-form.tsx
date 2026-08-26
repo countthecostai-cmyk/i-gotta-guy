@@ -14,7 +14,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { Database, RequestField } from "@/types/database";
 import { CategoryIcon } from "./service-icon";
 import { AddressPicker } from "./address-picker";
-import { DynamicFieldInput } from "./request-field-input";
+import { DynamicFieldInput, RequiredNumberOrPhotoField } from "./request-field-input";
 import { PriceBreakdown } from "./price-breakdown";
 import { RequestPhotoPicker, type PickedPhoto } from "./request-photo-picker";
 import { inferQuantity, defaultDetailsValue, validateRequiredFields, needsPhotoQuoteFallback } from "@/lib/domain/request-fields";
@@ -104,6 +104,17 @@ export function RequestForm({
   const needsPhotoQuote = useMemo(
     () => service.pricing_model !== "quote" && needsPhotoQuoteFallback(service.request_fields, details),
     [service.pricing_model, service.request_fields, details],
+  );
+
+  // When a service has a requiredUnlessPhotos number field (e.g. lawn
+  // size), the photo picker for it is rendered right there in the Job
+  // details section instead of down in a separate, easy-to-miss "Photos"
+  // section — so that section is skipped entirely to avoid two photo
+  // pickers on the page. Other services (no such field) keep the generic
+  // standalone optional-photos section.
+  const hasPhotoFallbackField = useMemo(
+    () => service.request_fields.some((f) => f.requiredUnlessPhotos && f.type === "number"),
+    [service.request_fields],
   );
 
   const selectedAddonObjects = useMemo(
@@ -361,14 +372,25 @@ export function RequestForm({
       {service.request_fields.length > 0 && (
         <section className="space-y-4">
           <h2 className="font-display text-sm font-semibold text-ink">Job details</h2>
-          {service.request_fields.map((field) => (
-            <DynamicFieldInput
-              key={field.key}
-              field={field}
-              value={details[field.key]}
-              onChange={(v) => updateDetail(field.key, v)}
-            />
-          ))}
+          {service.request_fields.map((field) =>
+            field.requiredUnlessPhotos && field.type === "number" ? (
+              <RequiredNumberOrPhotoField
+                key={field.key}
+                field={field}
+                value={details[field.key]}
+                onChange={(v) => updateDetail(field.key, v)}
+                photos={photos}
+                onPhotosChange={setPhotos}
+              />
+            ) : (
+              <DynamicFieldInput
+                key={field.key}
+                field={field}
+                value={details[field.key]}
+                onChange={(v) => updateDetail(field.key, v)}
+              />
+            ),
+          )}
         </section>
       )}
 
@@ -433,10 +455,12 @@ export function RequestForm({
         )}
       </section>
 
-      <section>
-        <h2 className="mb-2 font-display text-sm font-semibold text-ink">Photos (optional)</h2>
-        <RequestPhotoPicker photos={photos} onChange={setPhotos} />
-      </section>
+      {!hasPhotoFallbackField && (
+        <section>
+          <h2 className="mb-2 font-display text-sm font-semibold text-ink">Photos (optional)</h2>
+          <RequestPhotoPicker photos={photos} onChange={setPhotos} />
+        </section>
+      )}
 
       <section>
         <Label htmlFor="description">Anything else your Guy should know? (optional)</Label>

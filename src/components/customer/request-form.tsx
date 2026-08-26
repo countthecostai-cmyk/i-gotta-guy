@@ -17,7 +17,7 @@ import { AddressPicker } from "./address-picker";
 import { DynamicFieldInput } from "./request-field-input";
 import { PriceBreakdown } from "./price-breakdown";
 import { RequestPhotoPicker, type PickedPhoto } from "./request-photo-picker";
-import { inferQuantity, defaultDetailsValue, validateRequiredFields } from "./request-fields";
+import { inferQuantity, defaultDetailsValue, validateRequiredFields, needsPhotoQuoteFallback } from "@/lib/domain/request-fields";
 
 type Address = Database["public"]["Tables"]["addresses"]["Row"];
 
@@ -97,6 +97,15 @@ export function RequestForm({
     [service.pricing_model, service.request_fields, details],
   );
 
+  // A requiredUnlessPhotos field (e.g. lawn size) left blank in favor of
+  // attached photos means there's no real quantity to price from yet — the
+  // job goes through the same Guy-quotes-a-price flow as quote-priced
+  // services instead of an instant, placeholder-quantity charge.
+  const needsPhotoQuote = useMemo(
+    () => service.pricing_model !== "quote" && needsPhotoQuoteFallback(service.request_fields, details),
+    [service.pricing_model, service.request_fields, details],
+  );
+
   const selectedAddonObjects = useMemo(
     () => addons.filter((a) => selectedAddonIds.includes(a.id)),
     [addons, selectedAddonIds],
@@ -106,7 +115,7 @@ export function RequestForm({
     () =>
       calculatePricing({
         service: {
-          pricing_model: service.pricing_model,
+          pricing_model: needsPhotoQuote ? "quote" : service.pricing_model,
           base_price_cents: service.base_price_cents,
           min_price_cents: service.min_price_cents,
         },
@@ -114,7 +123,7 @@ export function RequestForm({
         selectedAddons: selectedAddonObjects,
         feeRule,
       }),
-    [service, quantity, selectedAddonObjects, feeRule],
+    [service, quantity, selectedAddonObjects, feeRule, needsPhotoQuote],
   );
 
   const selectedAddress = addresses.find((a) => a.id === selectedAddressId) ?? null;
@@ -133,7 +142,7 @@ export function RequestForm({
       setFormError("Please choose or add a service address.");
       return;
     }
-    const fieldError = validateRequiredFields(service.request_fields, details);
+    const fieldError = validateRequiredFields(service.request_fields, details, photos.length > 0);
     if (fieldError) {
       setFormError(fieldError);
       return;

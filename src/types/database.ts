@@ -23,6 +23,16 @@ export interface RequestField {
   label: string;
   type: "text" | "textarea" | "number" | "boolean" | "select" | "multiselect";
   required?: boolean;
+  /**
+   * Required only when the customer hasn't attached any request photos —
+   * for fields like a lawn's square footage, where photos give a Guy
+   * enough to quote from even without an exact number. When left blank
+   * because photos were attached instead, the job is priced as a quote
+   * (the Guy sends a real price after seeing the photos) rather than being
+   * charged a placeholder amount computed from a missing quantity. See
+   * needsPhotoQuoteFallback() in src/lib/domain/request-fields.ts.
+   */
+  requiredUnlessPhotos?: boolean;
   options?: string[];
 }
 

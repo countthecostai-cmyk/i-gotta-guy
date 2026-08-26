@@ -9,8 +9,9 @@ import {
   calculatePricing, calculateProviderPayout, type AddonForPricing, type PlatformFeeRule,
 } from "@/lib/domain/pricing";
 import { assertTransition, type JobStatus } from "@/lib/domain/job-state-machine";
+import { needsPhotoQuoteFallback } from "@/lib/domain/request-fields";
 import { notify } from "./notifications";
-import type { Database } from "@/types/database";
+import type { Database, RequestField } from "@/types/database";
 import { ActionError } from "./errors";
 
 export type Job = Database["public"]["Tables"]["jobs"]["Row"];
@@ -159,8 +160,25 @@ export async function createJobRequest(input: RequestJobInput) {
     return { jobId: recentDupe.id, redirectUrl: null as string | null, needsQuote: false };
   }
 
+  // A requiredUnlessPhotos field (e.g. lawn size) left blank means there's
+  // no real quantity to price this job from — never trust a client-supplied
+  // price, and never charge based on a missing-quantity placeholder either.
+  // Treat it exactly like a quote-priced service: the Guy quotes a real
+  // price after seeing the photos/description, same as needsPhotoQuoteFallback()
+  // already made the client-side preview show. Recomputed independently
+  // here from `parsed.details` (not a client-supplied flag) so the server
+  // can't be told "charge me now" while skipping the field.
+  const needsPhotoQuote =
+    service.pricing_model !== "quote" &&
+    needsPhotoQuoteFallback((service.request_fields ?? []) as RequestField[], parsed.details);
+  const isQuoteFlow = service.pricing_model === "quote" || needsPhotoQuote;
+
   const pricing = calculatePricing({
-    service: { pricing_model: service.pricing_model, base_price_cents: service.base_price_cents, min_price_cents: service.min_price_cents },
+    service: {
+      pricing_model: isQuoteFlow ? "quote" : service.pricing_model,
+      base_price_cents: service.base_price_cents,
+      min_price_cents: service.min_price_cents,
+    },
     customBasePriceCents: preferredGuy?.custom_base_price_cents ?? null,
     quantity: parsed.quantity ?? undefined,
     selectedAddons: addons,
@@ -168,7 +186,7 @@ export async function createJobRequest(input: RequestJobInput) {
     promotion,
   });
 
-  const initialStatus: JobStatus = service.pricing_model === "quote" ? "MATCHING" : "REQUESTED";
+  const initialStatus: JobStatus = isQuoteFlow ? "MATCHING" : "REQUESTED";
 
   const { data: job, error: jobErr } = await admin
     .from("jobs")
@@ -200,7 +218,7 @@ export async function createJobRequest(input: RequestJobInput) {
   if (jobErr || !job) throw new ActionError(jobErr?.message ?? "Could not create job request.");
   await logStatus(admin, job.id, initialStatus, user.id);
 
-  if (service.pricing_model === "quote") {
+  if (isQuoteFlow) {
     revalidatePath("/app/jobs");
     return { jobId: job.id, redirectUrl: null as string | null, needsQuote: true };
   }

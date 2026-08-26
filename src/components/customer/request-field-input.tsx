@@ -3,6 +3,38 @@
 import { Input, Textarea, Select, Label } from "@/components/ui/primitives";
 import type { RequestField } from "@/types/database";
 
+/** Red asterisk for always-required fields; a softer marker + caption for
+ * requiredUnlessPhotos fields, so the customer knows skipping it is fine as
+ * long as they attach photos — not that the field is simply optional. */
+function FieldLabelText({ field }: { field: RequestField }) {
+  if (field.required) {
+    return (
+      <>
+        {field.label}
+        <span className="text-danger"> *</span>
+      </>
+    );
+  }
+  if (field.requiredUnlessPhotos) {
+    return (
+      <>
+        {field.label}
+        <span className="text-ink-soft"> (or attach photos)</span>
+      </>
+    );
+  }
+  return <>{field.label}</>;
+}
+
+function FieldHint({ field }: { field: RequestField }) {
+  if (!field.requiredUnlessPhotos) return null;
+  return (
+    <p className="mt-1 text-xs text-ink-soft">
+      Skip this if you&rsquo;d rather attach photos below — your Guy will send a price after seeing them.
+    </p>
+  );
+}
+
 export function DynamicFieldInput({
   field,
   value,
@@ -18,8 +50,7 @@ export function DynamicFieldInput({
     return (
       <label htmlFor={id} className="tap-target flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-line bg-paper-raised px-4 py-3">
         <span className="text-sm font-medium text-ink">
-          {field.label}
-          {field.required && <span className="text-danger"> *</span>}
+          <FieldLabelText field={field} />
         </span>
         <input
           id={id}
@@ -36,8 +67,7 @@ export function DynamicFieldInput({
     return (
       <div>
         <Label htmlFor={id}>
-          {field.label}
-          {field.required && <span className="text-danger"> *</span>}
+          <FieldLabelText field={field} />
         </Label>
         <Select id={id} value={(value as string) ?? ""} onChange={(e) => onChange(e.target.value)}>
           <option value="" disabled>
@@ -49,6 +79,7 @@ export function DynamicFieldInput({
             </option>
           ))}
         </Select>
+        <FieldHint field={field} />
       </div>
     );
   }
@@ -62,8 +93,7 @@ export function DynamicFieldInput({
     return (
       <div>
         <Label>
-          {field.label}
-          {field.required && <span className="text-danger"> *</span>}
+          <FieldLabelText field={field} />
         </Label>
         <div className="flex flex-wrap gap-2">
           {(field.options ?? []).map((opt) => {
@@ -84,6 +114,7 @@ export function DynamicFieldInput({
             );
           })}
         </div>
+        <FieldHint field={field} />
       </div>
     );
   }
@@ -92,10 +123,10 @@ export function DynamicFieldInput({
     return (
       <div>
         <Label htmlFor={id}>
-          {field.label}
-          {field.required && <span className="text-danger"> *</span>}
+          <FieldLabelText field={field} />
         </Label>
         <Textarea id={id} rows={3} value={(value as string) ?? ""} onChange={(e) => onChange(e.target.value)} />
+        <FieldHint field={field} />
       </div>
     );
   }
@@ -104,8 +135,7 @@ export function DynamicFieldInput({
     return (
       <div>
         <Label htmlFor={id}>
-          {field.label}
-          {field.required && <span className="text-danger"> *</span>}
+          <FieldLabelText field={field} />
         </Label>
         <Input
           id={id}
@@ -115,6 +145,7 @@ export function DynamicFieldInput({
           value={(value as string) ?? ""}
           onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))}
         />
+        <FieldHint field={field} />
       </div>
     );
   }
@@ -123,10 +154,10 @@ export function DynamicFieldInput({
   return (
     <div>
       <Label htmlFor={id}>
-        {field.label}
-        {field.required && <span className="text-danger"> *</span>}
+        <FieldLabelText field={field} />
       </Label>
       <Input id={id} type="text" value={(value as string) ?? ""} onChange={(e) => onChange(e.target.value)} />
+      <FieldHint field={field} />
     </div>
   );
 }

@@ -62,6 +62,15 @@ export function validateRequiredFields(
       continue;
     }
     if (isBlank(value)) return `${field.label} is required.`;
+    // A required number field with a non-positive value (e.g. "0", "-5")
+    // isn't blank, but it's not a usable measurement/quantity either —
+    // without this check it silently fell through to
+    // calculateServiceAmount()'s `qty ?? 1` default, charging as if the
+    // customer had entered 1 unit instead of telling them to fix the field.
+    if (field.type === "number") {
+      const num = typeof value === "number" ? value : Number(value);
+      if (!Number.isFinite(num) || num <= 0) return `${field.label} must be greater than 0.`;
+    }
   }
   return null;
 }

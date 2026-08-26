@@ -9,7 +9,7 @@ import {
   calculatePricing, calculateProviderPayout, type AddonForPricing, type PlatformFeeRule,
 } from "@/lib/domain/pricing";
 import { assertTransition, type JobStatus } from "@/lib/domain/job-state-machine";
-import { needsPhotoQuoteFallback } from "@/lib/domain/request-fields";
+import { needsPhotoQuoteFallback, inferQuantity } from "@/lib/domain/request-fields";
 import { notify } from "./notifications";
 import type { Database, RequestField } from "@/types/database";
 import { ActionError } from "./errors";
@@ -173,6 +173,21 @@ export async function createJobRequest(input: RequestJobInput) {
     needsPhotoQuoteFallback((service.request_fields ?? []) as RequestField[], parsed.details);
   const isQuoteFlow = service.pricing_model === "quote" || needsPhotoQuote;
 
+  // Never trust a client-supplied quantity for a money computation any more
+  // than a client-supplied price — recompute it independently from
+  // parsed.details using the same heuristic the request form's pricing
+  // preview already uses. This also closes a billing-accuracy bug: without
+  // an explicit reject here, a missing/zero/invalid quantity would silently
+  // fall through to calculateServiceAmount()'s `qty ?? 1` default and charge
+  // as if the customer had entered exactly 1 unit.
+  const QUANTITY_PRICING_MODELS: Array<typeof service.pricing_model> = ["hourly", "quantity", "sqft"];
+  const serverQuantity = isQuoteFlow
+    ? undefined
+    : inferQuantity(service.pricing_model, (service.request_fields ?? []) as RequestField[], parsed.details);
+  if (!isQuoteFlow && QUANTITY_PRICING_MODELS.includes(service.pricing_model) && serverQuantity === undefined) {
+    throw new ActionError("Please enter a valid amount for this service's job details before submitting.");
+  }
+
   const pricing = calculatePricing({
     service: {
       pricing_model: isQuoteFlow ? "quote" : service.pricing_model,
@@ -180,7 +195,7 @@ export async function createJobRequest(input: RequestJobInput) {
       min_price_cents: service.min_price_cents,
     },
     customBasePriceCents: preferredGuy?.custom_base_price_cents ?? null,
-    quantity: parsed.quantity ?? undefined,
+    quantity: serverQuantity,
     selectedAddons: addons,
     feeRule,
     promotion,
@@ -202,7 +217,7 @@ export async function createJobRequest(input: RequestJobInput) {
       description: parsed.description,
       details: parsed.details,
       addon_ids: parsed.addonIds,
-      quantity: parsed.quantity ?? null,
+      quantity: serverQuantity ?? null,
       is_asap: parsed.isAsap,
       scheduled_start: parsed.scheduledStart ?? null,
       service_amount_cents: pricing.serviceAmountCents,
@@ -828,7 +843,10 @@ export async function addTip(input: z.infer<typeof tipSchema>) {
     { type: "processor_fee", account: "platform", amount_cents: charge.processorFeeCents, description: "Payment processor fee" },
   ]);
 
-  await admin.from("jobs").update({ tip_cents: job.tip_cents + parsed.amountCents, total_cents: job.total_cents + parsed.amountCents }).eq("id", job.id);
+  // Atomic increment (not job.tip_cents + amount from the stale read at the
+  // top of this action) — two tips landing close together must both be
+  // reflected, not have the second overwrite the first's contribution.
+  await admin.rpc("increment_job_tip", { p_job_id: job.id, p_amount_cents: parsed.amountCents });
 
   const { data: guy } = await admin.from("guy_profiles").select("stripe_connect_account_id").eq("id", job.guy_id).single();
   const payout = await processor.payoutProvider({ guyId: job.guy_id, jobId: job.id, amountCents: parsed.amountCents, connectAccountRef: guy?.stripe_connect_account_id ?? null });

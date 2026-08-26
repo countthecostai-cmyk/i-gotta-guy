@@ -37,13 +37,13 @@ export async function submitReview(input: z.infer<typeof schema>) {
     throw new ActionError(error.message);
   }
 
-  // Recompute the target's aggregate rating if they're a Guy.
+  // Recompute the target's aggregate rating if they're a Guy. Atomic (one
+  // SQL aggregate + update inside Postgres) rather than read-all-average-
+  // write from Node — two reviews landing close together could otherwise
+  // race and leave rating_count/avg_rating inconsistent with the real rows.
   const { data: guy } = await admin.from("guy_profiles").select("id").eq("id", targetId).maybeSingle();
   if (guy) {
-    const { data: allReviews } = await admin.from("reviews").select("rating").eq("target_id", targetId);
-    const ratings = (allReviews ?? []).map((r) => r.rating);
-    const avg = ratings.length ? ratings.reduce((a, b) => a + b, 0) / ratings.length : null;
-    await admin.from("guy_profiles").update({ avg_rating: avg, rating_count: ratings.length }).eq("id", targetId);
+    await admin.rpc("recompute_guy_rating", { p_guy_id: targetId });
   }
 
   await notify(targetId, "new_review", "You received a review", parsed.comment || `${parsed.rating}-star rating`, { jobId: parsed.jobId });

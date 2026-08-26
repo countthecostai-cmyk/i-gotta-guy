@@ -219,6 +219,8 @@ export interface Database {
     };
     Functions: {
       redeem_promotion: { Args: { promo_id: string }; Returns: boolean };
+      increment_job_tip: { Args: { p_job_id: string; p_amount_cents: number }; Returns: Database["public"]["Tables"]["jobs"]["Row"] };
+      recompute_guy_rating: { Args: { p_guy_id: string }; Returns: undefined };
     };
   };
 }

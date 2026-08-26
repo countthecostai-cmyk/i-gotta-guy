@@ -99,8 +99,20 @@ export class StripeConnectProcessor implements PaymentProcessor {
       return { success: false, processorRefundId: null, failureReason: "No payment intent to refund" };
     }
     try {
+      // `payments.processor_payment_intent_id` actually stores the Checkout
+      // Session id (`cs_...`) returned by chargeCustomer() above — the
+      // webhook matches payment rows against it, so that storage can't
+      // change without also touching route.ts. Stripe's refunds API takes
+      // a real PaymentIntent id (`pi_...`), not a session id, so resolve it
+      // here at refund time rather than storing the wrong id everywhere.
+      const session = await this.stripe.checkout.sessions.retrieve(input.processorPaymentIntentId);
+      const paymentIntentId =
+        typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
+      if (!paymentIntentId) {
+        return { success: false, processorRefundId: null, failureReason: "No completed payment found for this session yet" };
+      }
       const refund = await this.stripe.refunds.create({
-        payment_intent: input.processorPaymentIntentId,
+        payment_intent: paymentIntentId,
         amount: input.amountCents,
         reason: "requested_by_customer",
       });

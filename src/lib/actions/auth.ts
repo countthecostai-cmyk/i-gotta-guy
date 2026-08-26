@@ -4,6 +4,7 @@ import { z } from "zod";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { SITE_URL } from "@/lib/config";
+import { isSafeInternalPath } from "@/app/(auth)/_components/resolve-redirect";
 
 // Next.js redacts the message of any *thrown* Server Action error in
 // production builds (to avoid leaking internals), which meant real,
@@ -105,6 +106,53 @@ export async function signIn(input: z.infer<typeof signInSchema>): Promise<Actio
   const { data: profile } = await supabase.from("profiles").select("role").eq("id", data.user.id).maybeSingle();
   const role = profile?.role === "admin" || profile?.role === "guy" ? profile.role : "customer";
   return { success: true, role };
+}
+
+const magicLinkSchema = z.object({
+  email: z.string().email("Enter a valid email address."),
+  next: z.string().optional(),
+});
+
+/**
+ * Sends a passwordless sign-in link. This is a *sign-in* path only —
+ * `shouldCreateUser: false` means an email with no existing account never
+ * gets one provisioned this way, so it can't be used to route around the
+ * real signup flow (role selection, the customer default-address capture,
+ * etc.). The response is always the same generic success regardless of
+ * whether the email has an account, matching requestPasswordReset()'s
+ * anti-enumeration pattern below — a real send failure (bad email
+ * provider, rate limit, "Signups not allowed for otp" for a non-account)
+ * is swallowed rather than surfaced, since surfacing it would leak which
+ * emails are registered.
+ *
+ * The redirect target is always this app's own /login page (already on
+ * Supabase's Redirect URLs allow list from the signup-confirmation flow),
+ * carrying `next` through as a query param so the callback handler there
+ * can send the user back to where they started. The destination role
+ * (customer/guy/admin home) is never taken from this input — it's resolved
+ * from the authenticated user's own `profiles.role` row after the link is
+ * clicked, exactly like signIn() below, so a magic link can never be used
+ * to land a user somewhere their real role wouldn't otherwise send them.
+ */
+export async function sendMagicLink(input: z.infer<typeof magicLinkSchema>): Promise<ActionResult> {
+  const parsed = magicLinkSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Enter a valid email address." };
+
+  const supabase = await createClient();
+  const redirectPath =
+    parsed.data.next && isSafeInternalPath(parsed.data.next)
+      ? `/login?next=${encodeURIComponent(parsed.data.next)}`
+      : "/login";
+
+  await supabase.auth.signInWithOtp({
+    email: parsed.data.email,
+    options: {
+      shouldCreateUser: false,
+      emailRedirectTo: `${SITE_URL}${redirectPath}`,
+    },
+  });
+
+  return { success: true };
 }
 
 export async function signOut() {

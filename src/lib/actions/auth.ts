@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { SITE_URL } from "@/lib/config";
 import { isSafeInternalPath } from "@/app/(auth)/_components/resolve-redirect";
 
@@ -43,47 +44,63 @@ export async function signUp(input: z.infer<typeof signUpSchema>): Promise<Actio
   const parsed = signUpSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Please check your details." };
 
-  const supabase = await createClient();
-  const { data, error } = await supabase.auth.signUp({
+  // Created directly via the service-role admin API with `email_confirm:
+  // true`, rather than the public signUp() + Supabase's own confirmation
+  // email. This project's transactional email (Resend) is still in sandbox
+  // mode — until a sending domain is verified, Resend will only deliver to
+  // the account owner's own inbox, so routing signup through a confirmation
+  // email fails for every other real user (`550 You can only send testing
+  // emails to your own email address...`). Creating the account
+  // pre-confirmed sidesteps that dependency entirely. This does not weaken
+  // any real security boundary: email confirmation only proves the address
+  // is reachable, it was never how authorization or RLS decide who someone
+  // is (that's auth.uid(), independent of email_confirmed_at) — and this
+  // path still requires knowing the account's own chosen password to do
+  // anything with it, same as before.
+  const admin = createAdminClient();
+  const { data, error } = await admin.auth.admin.createUser({
     email: parsed.data.email,
     password: parsed.data.password,
-    options: {
-      data: {
-        full_name: parsed.data.fullName,
-        role: parsed.data.role,
-        // Read by the handle_new_user() DB trigger, which creates a default
-        // `addresses` row alongside the profile for customer signups —
-        // see supabase/migrations/0016_signup_default_address.sql.
-        ...(parsed.data.role === "customer"
-          ? {
-              address_line1: parsed.data.addressLine1?.trim(),
-              address_line2: parsed.data.addressLine2?.trim() || null,
-              address_city: parsed.data.addressCity?.trim(),
-              address_state: parsed.data.addressState?.trim(),
-              address_postal_code: parsed.data.addressPostalCode?.trim(),
-            }
-          : {}),
-      },
-      // Without this, Supabase falls back to the project's dashboard-configured
-      // Site URL for the confirmation link — which was still the local dev
-      // default, so every confirmation email sent from production pointed
-      // users at localhost and the link couldn't go anywhere. This must also
-      // be present in the project's Auth "Redirect URLs" allow list, or
-      // Supabase silently ignores it and falls back to that same Site URL.
-      emailRedirectTo: `${SITE_URL}/login`,
+    email_confirm: true,
+    user_metadata: {
+      full_name: parsed.data.fullName,
+      role: parsed.data.role,
+      // Read by the handle_new_user() DB trigger, which creates a default
+      // `addresses` row alongside the profile for customer signups —
+      // see supabase/migrations/0016_signup_default_address.sql.
+      ...(parsed.data.role === "customer"
+        ? {
+            address_line1: parsed.data.addressLine1?.trim(),
+            address_line2: parsed.data.addressLine2?.trim() || null,
+            address_city: parsed.data.addressCity?.trim(),
+            address_state: parsed.data.addressState?.trim(),
+            address_postal_code: parsed.data.addressPostalCode?.trim(),
+          }
+        : {}),
     },
   });
-  if (error) return { error: error.message };
 
-  // With email confirmation on, Supabase returns success (no `error`) for
-  // an already-registered email too — to avoid leaking which emails have
-  // accounts, it just doesn't send a second confirmation email. The one
-  // reliable signal is an empty `identities` array on a "new" user. Without
-  // this check the UI shows a false "check your email" success, and the
-  // real account holder never learns they should log in instead.
-  if (data.user && data.user.identities && data.user.identities.length === 0) {
-    return { error: "An account with this email already exists. Try logging in instead." };
+  if (error) {
+    // The admin API errors directly on a duplicate email (unlike the public
+    // signUp() flow, which stays silent about it for anti-enumeration
+    // reasons) — map it to the same friendly message either way.
+    if (error.status === 422 || /already been registered|already exists/i.test(error.message)) {
+      return { error: "An account with this email already exists. Try logging in instead." };
+    }
+    return { error: error.message };
   }
+  if (!data.user) return { error: "Something went wrong creating your account. Try again." };
+
+  // createUser() only creates the row — establish a real session the same
+  // way the rest of the app expects, so signup lands the user straight in
+  // the app exactly as it did when email confirmation was in the loop.
+  const supabase = await createClient();
+  const { error: signInError } = await supabase.auth.signInWithPassword({
+    email: parsed.data.email,
+    password: parsed.data.password,
+  });
+  if (signInError) return { error: signInError.message };
+
   return { success: true };
 }
 

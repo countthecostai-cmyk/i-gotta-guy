@@ -9,7 +9,18 @@ import { AcceptJobButton } from "./accept-job-button";
 import { OfferThreadPanel, type OfferThreadData } from "./offer-thread-panel";
 import type { GuyJobWithService } from "./types";
 
-export function OpenJobCard({ job, myThread = null }: { job: GuyJobWithService; myThread?: OfferThreadData | null }) {
+export function OpenJobCard({
+  job,
+  myThread = null,
+  isMatch = false,
+}: {
+  job: GuyJobWithService;
+  myThread?: OfferThreadData | null;
+  /** True when this job's service is one the Guy has toggled on in their
+   * profile. Every approved Guy sees every open job — this only affects
+   * sort order and this small badge, never visibility. */
+  isMatch?: boolean;
+}) {
   const isQuote = job.services?.pricing_model === "quote";
   const earningsCents = calculateProviderPayout({
     serviceAmountCents: job.service_amount_cents,
@@ -27,9 +38,16 @@ export function OpenJobCard({ job, myThread = null }: { job: GuyJobWithService; 
       <Link href={`/guy/jobs/${job.id}`} className="block">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="truncate font-display text-base font-semibold text-ink">
-              {jobDisplayTitle(job.details, job.services?.name ?? "Service")}
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="truncate font-display text-base font-semibold text-ink">
+                {jobDisplayTitle(job.details, job.services?.name ?? "Service")}
+              </p>
+              {isMatch && (
+                <span className="shrink-0 rounded-full bg-brand-light px-2 py-0.5 text-[11px] font-medium text-brand-dark">
+                  Your service
+                </span>
+              )}
+            </div>
             <p className="mt-0.5 flex items-center gap-1 text-sm text-ink-soft">
               <MapPin className="h-3.5 w-3.5 shrink-0" />
               <span className="truncate">

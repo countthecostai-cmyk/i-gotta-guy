@@ -317,19 +317,11 @@ export async function acceptOpenJob(jobId: string) {
   if (!job) throw new ActionError("Job not found.");
   assertTransition(job.status as JobStatus, "ACCEPTED", "guy");
 
-  // acceptOpenJob writes via the service-role client (bypasses RLS), so the
-  // `jobs_select`/`jobs_update` RLS eligibility check (Guy must have this
-  // service active in guy_services) does NOT apply here automatically —
-  // re-enforce it explicitly, or any approved Guy could accept any job
-  // regardless of which services they actually offer.
-  const { data: eligible } = await supabase
-    .from("guy_services")
-    .select("guy_id")
-    .eq("guy_id", user.id)
-    .eq("service_id", job.service_id)
-    .eq("active", true)
-    .maybeSingle();
-  if (!eligible) throw new ActionError("You don't currently offer this service.");
+  // Any approved Guy can accept any open job, regardless of which services
+  // they've toggled on in their profile — toggling a service is a sorting
+  // preference (see guy/jobs/page.tsx), not an eligibility gate. See
+  // migration 0023_open_jobs_visible_to_all_approved_guys.sql for the
+  // matching RLS-side change.
 
   // Atomic claim: only succeeds if still unassigned, preventing two Guys
   // from accepting the same job in a race.
@@ -394,15 +386,7 @@ export async function submitQuote(input: z.infer<typeof submitQuoteSchema>) {
     throw new ActionError("This job is no longer open for offers.");
   }
 
-  // Same admin-client-bypasses-RLS reasoning as acceptOpenJob above.
-  const { data: eligible } = await supabase
-    .from("guy_services")
-    .select("guy_id")
-    .eq("guy_id", user.id)
-    .eq("service_id", job.service_id)
-    .eq("active", true)
-    .maybeSingle();
-  if (!eligible) throw new ActionError("You don't currently offer this service.");
+  // Any approved Guy can offer on any open job — see acceptOpenJob above.
 
   const thread = await getLatestThread(admin, parsed.jobId, user.id);
   const isCounter = Boolean(thread && thread.status === "pending");

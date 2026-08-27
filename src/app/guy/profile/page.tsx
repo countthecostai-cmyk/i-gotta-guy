@@ -91,7 +91,11 @@ export default async function GuyProfilePage() {
       {canManageOperations && (
         <>
           <Card className="p-5 sm:p-6">
-            <h2 className="mb-4 font-display text-lg font-semibold text-ink">Services you offer</h2>
+            <h2 className="font-display text-lg font-semibold text-ink">Services you offer</h2>
+            <p className="mb-4 mt-1 text-sm text-ink-soft">
+              You&apos;ll see every open job either way — toggling a service on just moves those jobs to the top of
+              your list.
+            </p>
             <ServicesManager groups={groups} initial={guyServiceState} />
           </Card>
 

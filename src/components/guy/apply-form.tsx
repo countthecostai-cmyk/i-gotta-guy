@@ -83,8 +83,8 @@ export function ApplyForm({ groups }: { groups: CategoryGroup[] }) {
       <div>
         <Label htmlFor="services">What do you do?</Label>
         <p className="mb-2 text-xs text-ink-soft">
-          Pick at least one — you&apos;ll only be matched with jobs for the services you select. You can add more
-          any time from your profile.
+          Pick at least one — you&apos;ll see every open job, but these get priority placement for you. You can
+          change this any time from your profile.
         </p>
         {groups.length === 0 ? (
           <p className="text-sm text-ink-soft">No services are available to offer yet.</p>

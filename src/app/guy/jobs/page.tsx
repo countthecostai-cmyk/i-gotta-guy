@@ -21,31 +21,40 @@ export default async function GuyJobsPage() {
   const status = guyStatusKind(guyProfile);
   if (status !== "approved") redirect("/guy");
 
-  const [{ data: openRaw, error: openErr }, { data: mineRaw, error: mineErr }, { data: myQuoteRows, error: quotesErr }] =
-    await Promise.all([
-      supabase
-        .from("jobs")
-        .select("*, services(name, pricing_model, unit_label)")
-        .eq("status", "MATCHING")
-        .is("guy_id", null)
-        .order("is_asap", { ascending: false })
-        .order("created_at", { ascending: true })
-        .limit(30),
-      supabase
-        .from("jobs")
-        .select("*, services(name, pricing_model, unit_label)")
-        .eq("guy_id", user!.id)
-        .order("created_at", { ascending: false })
-        .limit(60),
-      // This Guy's own offer threads — collapsed below to the latest per
-      // job to find which ones are still open and awaiting action.
-      supabase
-        .from("quotes")
-        .select("job_id, status, proposed_by, amount_cents, note, created_at, jobs!inner(id, status, guy_id, city, state, postal_code, description, is_asap, scheduled_start, details, services(name))")
-        .eq("guy_id", user!.id)
-        .order("created_at", { ascending: false })
-        .limit(200),
-    ]);
+  const [
+    { data: openRaw, error: openErr },
+    { data: mineRaw, error: mineErr },
+    { data: myQuoteRows, error: quotesErr },
+    { data: myServiceRows, error: myServicesErr },
+  ] = await Promise.all([
+    // Every open job in the pool, regardless of which services this Guy
+    // has toggled on — see migration 0023 and the comment below on
+    // myActiveServiceIds for why the toggle is a sort preference, not a
+    // visibility filter.
+    supabase
+      .from("jobs")
+      .select("*, services(name, pricing_model, unit_label)")
+      .eq("status", "MATCHING")
+      .is("guy_id", null)
+      .order("is_asap", { ascending: false })
+      .order("created_at", { ascending: true })
+      .limit(30),
+    supabase
+      .from("jobs")
+      .select("*, services(name, pricing_model, unit_label)")
+      .eq("guy_id", user!.id)
+      .order("created_at", { ascending: false })
+      .limit(60),
+    // This Guy's own offer threads — collapsed below to the latest per
+    // job to find which ones are still open and awaiting action.
+    supabase
+      .from("quotes")
+      .select("job_id, status, proposed_by, amount_cents, note, created_at, jobs!inner(id, status, guy_id, city, state, postal_code, description, is_asap, scheduled_start, details, services(name))")
+      .eq("guy_id", user!.id)
+      .order("created_at", { ascending: false })
+      .limit(200),
+    supabase.from("guy_services").select("service_id").eq("guy_id", user!.id).eq("active", true),
+  ]);
   // A failed query must not render as "no jobs" — that's misleading for a
   // page directly tied to a Guy's income (missing an open job, or thinking
   // an active job disappeared). Throw so error.tsx shows a real error
@@ -53,9 +62,22 @@ export default async function GuyJobsPage() {
   if (openErr) throw new Error(`Could not load open jobs: ${openErr.message}`);
   if (mineErr) throw new Error(`Could not load your jobs: ${mineErr.message}`);
   if (quotesErr) throw new Error(`Could not load your offers: ${quotesErr.message}`);
+  if (myServicesErr) throw new Error(`Could not load your services: ${myServicesErr.message}`);
 
-  const openJobs = (openRaw as unknown as GuyJobWithService[] | null) ?? [];
+  const openJobsRaw = (openRaw as unknown as GuyJobWithService[] | null) ?? [];
   const mineJobs = (mineRaw as unknown as GuyJobWithService[] | null) ?? [];
+
+  // Every approved Guy sees every open job — the services a Guy has
+  // toggled on in their profile are a sorting preference, not a filter, so
+  // jobs matching what they offer surface first without hiding anything
+  // else. `Array.prototype.sort` is stable, so within each group the
+  // existing is_asap/created_at ordering from the query is preserved.
+  const myActiveServiceIds = new Set((myServiceRows ?? []).map((r) => r.service_id));
+  const openJobs = [...openJobsRaw].sort((a, b) => {
+    const aMatch = myActiveServiceIds.has(a.service_id) ? 0 : 1;
+    const bMatch = myActiveServiceIds.has(b.service_id) ? 0 : 1;
+    return aMatch - bMatch;
+  });
 
   const active = mineJobs.filter((j) => ACTIVE.includes(j.status as JobStatus));
   const wrappedUp = mineJobs.filter((j) => WRAPPED_UP.includes(j.status as JobStatus)).slice(0, 10);
@@ -90,7 +112,7 @@ export default async function GuyJobsPage() {
         {openJobs.length === 0 ? (
           <EmptyState
             title="No open jobs right now"
-            description="New job requests for the services you offer will show up here. Check back soon."
+            description="New job requests in your area will show up here. Check back soon."
           />
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
@@ -100,7 +122,14 @@ export default async function GuyJobsPage() {
                 t && t.status !== "accepted"
                   ? { status: t.status, proposedBy: t.proposed_by as OfferThreadData["proposedBy"], amountCents: t.amount_cents, note: t.note ?? "" }
                   : null;
-              return <OpenJobCard key={job.id} job={job} myThread={myThread} />;
+              return (
+                <OpenJobCard
+                  key={job.id}
+                  job={job}
+                  myThread={myThread}
+                  isMatch={myActiveServiceIds.has(job.service_id)}
+                />
+              );
             })}
           </div>
         )}

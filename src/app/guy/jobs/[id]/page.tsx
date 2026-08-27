@@ -111,25 +111,37 @@ export default async function GuyJobDetailPage({ params }: { params: Promise<{ i
       </div>
 
       {isMine && addressResult?.line1 && (
-        <a
-          href={`https://maps.google.com/?q=${encodeURIComponent(
-            `${addressResult.line1}${addressResult.line2 ? " " + addressResult.line2 : ""}, ${addressResult.city}, ${addressResult.state} ${addressResult.postal_code}`,
-          )}`}
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center justify-between rounded-2xl border border-line bg-paper-raised px-4 py-3 hover:bg-ink/5"
-        >
-          <div>
-            <p className="text-sm font-medium text-ink">
-              {addressResult.line1}
-              {addressResult.line2 ? `, ${addressResult.line2}` : ""}
-            </p>
-            <p className="text-sm text-ink-soft">
-              {addressResult.city}, {addressResult.state} {addressResult.postal_code}
-            </p>
-          </div>
-          <Navigation className="h-5 w-5 shrink-0 text-brand" />
-        </a>
+        <div className="rounded-2xl border border-line bg-paper-raised px-4 py-3">
+          <a
+            href={`https://maps.apple.com/?daddr=${encodeURIComponent(
+              `${addressResult.line1}${addressResult.line2 ? " " + addressResult.line2 : ""}, ${addressResult.city}, ${addressResult.state} ${addressResult.postal_code}`,
+            )}&dirflg=d`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center justify-between hover:opacity-80"
+          >
+            <div>
+              <p className="text-sm font-medium text-ink">
+                {addressResult.line1}
+                {addressResult.line2 ? `, ${addressResult.line2}` : ""}
+              </p>
+              <p className="text-sm text-ink-soft">
+                {addressResult.city}, {addressResult.state} {addressResult.postal_code}
+              </p>
+            </div>
+            <Navigation className="h-5 w-5 shrink-0 text-brand" />
+          </a>
+          <a
+            href={`https://maps.google.com/?q=${encodeURIComponent(
+              `${addressResult.line1}${addressResult.line2 ? " " + addressResult.line2 : ""}, ${addressResult.city}, ${addressResult.state} ${addressResult.postal_code}`,
+            )}`}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2 block text-xs font-medium text-ink-soft underline hover:text-ink"
+          >
+            Open in Google Maps instead
+          </a>
+        </div>
       )}
 
       <Card className="p-4">
@@ -227,9 +239,18 @@ export default async function GuyJobDetailPage({ params }: { params: Promise<{ i
         <>
           <Card className="p-4">
             <h2 className="mb-3 text-sm font-semibold text-ink">Update status</h2>
-            <JobStatusActions jobId={job.id} status={job.status as JobStatus} />
+            <JobStatusActions
+              jobId={job.id}
+              status={job.status as JobStatus}
+              hasAfterPhoto={(photoRows as JobPhotoData[] | null)?.some((p) => p.stage === "after") ?? false}
+            />
             {job.status === "QUOTED" && (
               <p className="text-sm text-ink-soft">Waiting on the customer to accept your quote.</p>
+            )}
+            {job.status === "COMPLETED" && (
+              <p className="text-sm text-ink-soft">
+                Waiting on the customer to confirm the job is done — you&apos;ll get paid once they do.
+              </p>
             )}
           </Card>
 

@@ -13,6 +13,7 @@ import { CancelJobButton } from "@/components/customer/cancel-job-button";
 import { ReviewForm } from "@/components/customer/review-form";
 import { TipButton } from "@/components/customer/tip-button";
 import { JobPhotosGallery } from "@/components/customer/job-photos-gallery";
+import { JobCompletionConfirm } from "@/components/customer/job-completion-confirm";
 import { formatJobDate, formatShortDate } from "@/components/customer/format";
 import { jobDisplayTitle } from "@/lib/domain/job-display";
 import { canTransition, type JobStatus } from "@/lib/domain/job-state-machine";
@@ -181,6 +182,8 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
           <JobPhotosGallery photos={photos} />
         </section>
       )}
+
+      {status === "COMPLETED" && <JobCompletionConfirm jobId={job.id} />}
 
       <section>
         <h2 className="mb-3 font-display text-sm font-semibold text-ink">Status</h2>

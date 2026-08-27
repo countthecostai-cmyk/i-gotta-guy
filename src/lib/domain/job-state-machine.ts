@@ -70,7 +70,13 @@ const TRANSITION_ACTORS: Record<string, JobActor[]> = {
   "ARRIVED->CANCELLED": ["customer", "guy", "admin"],
   "IN_PROGRESS->COMPLETED": ["guy"],
   "IN_PROGRESS->CANCELLED": ["admin"],
-  "COMPLETED->PAYOUT_PENDING": ["system"],
+  // A Guy marking a job COMPLETED no longer pays them automatically — the
+  // customer must confirm the work before payout (confirmJobCompletion),
+  // or report a problem to send it to DISPUTED instead
+  // (reportCompletionProblem). Admin can still force either path via the
+  // existing dispute-resolution tooling.
+  "COMPLETED->PAYOUT_PENDING": ["customer"],
+  "COMPLETED->DISPUTED": ["customer"],
   "PAYOUT_PENDING->PAYOUT_COMPLETED": ["system"],
   "DECLINED->MATCHING": ["system"],
   "EXPIRED->MATCHING": ["system"],
@@ -134,7 +140,7 @@ export const JOB_STATUS_LABELS: Record<JobStatus, string> = {
   EN_ROUTE: "Guy is on the way",
   ARRIVED: "Guy has arrived",
   IN_PROGRESS: "Job in progress",
-  COMPLETED: "Completed",
+  COMPLETED: "Awaiting your confirmation",
   CANCELLED: "Cancelled",
   DECLINED: "Declined",
   EXPIRED: "Expired",

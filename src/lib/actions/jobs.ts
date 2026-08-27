@@ -624,6 +624,20 @@ export async function updateJobStatus(jobId: string, nextStatus: JobStatus, note
   if (!job) throw new ActionError("Job not found or not assigned to you.");
   assertTransition(job.status as JobStatus, nextStatus, "guy");
 
+  // Marking a job COMPLETED requires proof of the finished work: at least
+  // one "after" photo. This is what the customer is asked to confirm
+  // against before the Guy gets paid — see confirmJobCompletion below.
+  if (nextStatus === "COMPLETED") {
+    const { data: afterPhoto } = await admin
+      .from("job_photos")
+      .select("id")
+      .eq("job_id", jobId)
+      .eq("stage", "after")
+      .limit(1)
+      .maybeSingle();
+    if (!afterPhoto) throw new ActionError("Add a photo of the finished job before marking it complete.");
+  }
+
   // Atomic, conditional on the status we just read — if a concurrent
   // request (double-tap, two tabs) already advanced this job, this update
   // matches zero rows and we bail out instead of re-running side effects
@@ -643,17 +657,93 @@ export async function updateJobStatus(jobId: string, nextStatus: JobStatus, note
     EN_ROUTE: { type: "job_en_route", title: "Your Guy is on the way", body: "" },
     ARRIVED: { type: "job_arrived", title: "Your Guy has arrived", body: "" },
     IN_PROGRESS: { type: "job_in_progress", title: "Job started", body: "Work is underway." },
-    COMPLETED: { type: "job_completed", title: "Job completed", body: "Take a look and leave a review when you're ready." },
+    COMPLETED: {
+      type: "job_completed",
+      title: "Job marked complete",
+      body: "Take a look at the photos and confirm the job is done so your Guy can get paid.",
+    },
   };
   const event = eventMap[nextStatus];
   if (event) await notify(job.customer_id, event.type, event.title, event.body, { jobId });
 
-  if (nextStatus === "COMPLETED") {
-    await settleCompletedJob(admin, { ...job, status: "COMPLETED" } as Job);
-  }
+  // Payout no longer fires automatically here — a Guy marking COMPLETED is
+  // no longer sufficient on its own. The customer must confirm the job is
+  // actually done (confirmJobCompletion) before settleCompletedJob runs.
 
   revalidatePath(`/guy/jobs/${jobId}`);
   revalidatePath(`/app/jobs/${jobId}`);
+  return { success: true };
+}
+
+/**
+ * Customer confirms a COMPLETED job is actually done, which is what
+ * triggers the Guy's payout. Requiring an explicit confirmation (on top of
+ * the Guy's own "after" photo, enforced in updateJobStatus) means payout
+ * never depends solely on the Guy's own say-so.
+ */
+export async function confirmJobCompletion(jobId: string) {
+  const { supabase, user } = await requireUser();
+  const admin = createAdminClient();
+
+  const { data: job } = await supabase.from("jobs").select("*").eq("id", jobId).eq("customer_id", user.id).single();
+  if (!job) throw new ActionError("Job not found.");
+  assertTransition(job.status as JobStatus, "PAYOUT_PENDING", "customer");
+
+  // Same atomic conditional-update guard as updateJobStatus — a double-tap
+  // or two open tabs must not trigger settleCompletedJob twice.
+  const { data: updated, error: updateErr } = await admin
+    .from("jobs")
+    .update({ status: "PAYOUT_PENDING" })
+    .eq("id", jobId)
+    .eq("status", job.status)
+    .select()
+    .maybeSingle();
+  if (updateErr || !updated) throw new ActionError("This job's status just changed — refresh and try again.");
+  await logStatus(admin, jobId, "PAYOUT_PENDING", user.id, "customer confirmed the job is done");
+
+  await settleCompletedJob(admin, { ...job, status: "COMPLETED" } as Job);
+
+  revalidatePath(`/app/jobs/${jobId}`);
+  revalidatePath(`/guy/jobs/${jobId}`);
+  return { success: true };
+}
+
+/**
+ * Customer disputes a COMPLETED job instead of confirming it — sends it to
+ * DISPUTED so it reaches the existing admin dispute-resolution tooling
+ * (resolveDispute) rather than getting stuck unpaid-and-unresolved forever.
+ */
+export async function reportCompletionProblem(jobId: string, reason: string) {
+  const { supabase, user } = await requireUser();
+  const admin = createAdminClient();
+  if (!reason.trim()) throw new ActionError("Let us know what went wrong.");
+
+  const { data: job } = await supabase.from("jobs").select("*").eq("id", jobId).eq("customer_id", user.id).single();
+  if (!job) throw new ActionError("Job not found.");
+  assertTransition(job.status as JobStatus, "DISPUTED", "customer");
+
+  const { data: updated, error: updateErr } = await admin
+    .from("jobs")
+    .update({ status: "DISPUTED" })
+    .eq("id", jobId)
+    .eq("status", job.status)
+    .select()
+    .maybeSingle();
+  if (updateErr || !updated) throw new ActionError("This job's status just changed — refresh and try again.");
+  await logStatus(admin, jobId, "DISPUTED", user.id, reason);
+
+  if (job.guy_id) {
+    await notify(
+      job.guy_id,
+      "job_disputed",
+      "A job you completed is under review",
+      "The customer flagged an issue with this job. Our team will take a look.",
+      { jobId },
+    );
+  }
+
+  revalidatePath(`/app/jobs/${jobId}`);
+  revalidatePath(`/guy/jobs/${jobId}`);
   return { success: true };
 }
 

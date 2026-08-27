@@ -29,7 +29,19 @@ function guyAllowedNext(current: JobStatus): JobStatus[] {
   });
 }
 
-export function JobStatusActions({ jobId, status }: { jobId: string; status: JobStatus }) {
+export function JobStatusActions({
+  jobId,
+  status,
+  hasAfterPhoto = false,
+}: {
+  jobId: string;
+  status: JobStatus;
+  /** Whether an "after" photo has been uploaded yet. A job can't be marked
+   * COMPLETED without one — enforced server-side in updateJobStatus; this
+   * just disables the button early with an explanation instead of letting
+   * the Guy hit the error. */
+  hasAfterPhoto?: boolean;
+}) {
   const router = useRouter();
   const [showCancel, setShowCancel] = useState(false);
   const [reason, setReason] = useState("");
@@ -57,19 +69,28 @@ export function JobStatusActions({ jobId, status }: { jobId: string; status: Job
   return (
     <div className="space-y-3">
       <ErrorBanner message={updateAction.error ?? cancelAction.error} />
-      {forward.map((next) => (
-        <Button
-          key={next}
-          type="button"
-          variant="trust"
-          size="lg"
-          className="w-full"
-          disabled={updateAction.pending}
-          onClick={() => handleAdvance(next)}
-        >
-          {updateAction.pending ? "Updating…" : FORWARD_LABELS[next]}
-        </Button>
-      ))}
+      {forward.map((next) => {
+        const blockedByPhoto = next === "COMPLETED" && !hasAfterPhoto;
+        return (
+          <div key={next}>
+            <Button
+              type="button"
+              variant="trust"
+              size="lg"
+              className="w-full"
+              disabled={updateAction.pending || blockedByPhoto}
+              onClick={() => handleAdvance(next)}
+            >
+              {updateAction.pending ? "Updating…" : FORWARD_LABELS[next]}
+            </Button>
+            {blockedByPhoto && (
+              <p className="mt-1.5 text-center text-xs text-ink-soft">
+                Add a photo of the finished job below before marking it complete.
+              </p>
+            )}
+          </div>
+        );
+      })}
       {canCancel &&
         (showCancel ? (
           <form

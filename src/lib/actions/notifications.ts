@@ -6,6 +6,7 @@ export type NotificationType =
   | "job_scheduled" | "job_en_route" | "job_arrived" | "job_in_progress"
   | "job_completed" | "job_cancelled" | "payment_received" | "payout_sent"
   | "new_message" | "new_review" | "guy_approved" | "guy_rejected"
+  | "job_disputed"
   | "support_update";
 
 /**

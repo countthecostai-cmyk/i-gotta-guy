@@ -16,14 +16,24 @@ import { SITE_URL } from "@/lib/config";
  * timing payouts (e.g. holding funds until job completion / dispute window)
  * rather than using Stripe's automatic destination-charge split.
  *
- * REMAINING SETUP TO GO FULLY LIVE (this code is correct but needs infra):
- *   1. Set STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET in the environment.
- *   2. Point a Stripe webhook at /api/webhooks/stripe for
- *      `checkout.session.completed` (and `charge.refunded` for reconciliation).
- *   3. Onboard each Guy through Stripe Connect Express (create a connected
- *      account + onboarding link) and store the resulting account id in
- *      guy_profiles.stripe_connect_account_id before payouts can run.
- *   4. Enable Stripe Connect on the platform's Stripe account.
+ * REMAINING SETUP TO GO FULLY LIVE (code + Stripe-side config are both
+ * done — this is the one manual step left, and only Andre can do it):
+ *   1. Set STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, and
+ *      STRIPE_CONNECT_WEBHOOK_SECRET in Vercel's environment variables
+ *      (Andre must enter these himself — never pasted through an AI
+ *      session). The two webhook endpoints already exist on the Stripe
+ *      account, each pointed at /api/webhooks/stripe:
+ *        - checkout.session.completed (account endpoint)
+ *        - account.updated (Connect endpoint, connect: true)
+ *   2. Accept loss liability at
+ *      dashboard.stripe.com/settings/connect/platform-profile — Stripe
+ *      requires this dashboard step before any connected account can be
+ *      created with the platform owning loss liability, which this
+ *      marketplace's "separate charges and transfers" model requires.
+ *   3. Guys onboard themselves via Stripe Connect Express from
+ *      /guy/earnings (see createGuyPayoutOnboardingLink in
+ *      src/lib/actions/guys.ts) — no manual account creation needed once
+ *      steps 1-2 are done.
  */
 export class StripeConnectProcessor implements PaymentProcessor {
   readonly name = "stripe";

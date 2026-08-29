@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/primitives";
-import { Textarea, Label } from "@/components/ui/primitives";
+import { Textarea, Label, Input } from "@/components/ui/primitives";
 import { confirmJobCompletion, reportCompletionProblem } from "@/lib/actions/jobs";
 import { ActionError } from "@/lib/actions/errors";
 
@@ -19,6 +19,8 @@ export function JobCompletionConfirm({ jobId }: { jobId: string }) {
   const router = useRouter();
   const [mode, setMode] = useState<"idle" | "reporting">("idle");
   const [reason, setReason] = useState("");
+  const [referralCode, setReferralCode] = useState("");
+  const [showReferralField, setShowReferralField] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -26,7 +28,7 @@ export function JobCompletionConfirm({ jobId }: { jobId: string }) {
     setSubmitting(true);
     setError(null);
     try {
-      await confirmJobCompletion(jobId);
+      await confirmJobCompletion(jobId, referralCode.trim() || undefined);
       router.refresh();
     } catch (err) {
       setError(err instanceof ActionError ? err.message : "Couldn't confirm this job. Please try again.");
@@ -65,13 +67,36 @@ export function JobCompletionConfirm({ jobId }: { jobId: string }) {
       {error && <p className="text-sm text-danger">{error}</p>}
 
       {mode === "idle" ? (
-        <div className="flex flex-wrap gap-2">
-          <Button variant="trust" size="lg" onClick={handleConfirm} disabled={submitting}>
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirm — the job is done"}
-          </Button>
-          <Button variant="outline" size="lg" onClick={() => setMode("reporting")} disabled={submitting}>
-            Something&apos;s not right
-          </Button>
+        <div className="space-y-2">
+          {showReferralField ? (
+            <div className="space-y-1">
+              <Label htmlFor="referral-code">Referral code (optional)</Label>
+              <Input
+                id="referral-code"
+                value={referralCode}
+                onChange={(e) => setReferralCode(e.target.value)}
+                placeholder="Enter code"
+                className="max-w-[200px]"
+                autoCapitalize="characters"
+              />
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowReferralField(true)}
+              className="text-xs font-medium text-ink-soft underline-offset-2 hover:text-ink hover:underline"
+            >
+              Have a referral code?
+            </button>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button variant="trust" size="lg" onClick={handleConfirm} disabled={submitting}>
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirm — the job is done"}
+            </Button>
+            <Button variant="outline" size="lg" onClick={() => setMode("reporting")} disabled={submitting}>
+              Something&apos;s not right
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="space-y-2">

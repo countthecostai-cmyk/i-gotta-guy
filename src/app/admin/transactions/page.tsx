@@ -26,6 +26,7 @@ const TYPE_TONE: Record<TransactionType, "default" | "trust" | "brand" | "warn" 
   tax: "muted",
   processor_fee: "warn",
   adjustment: "warn",
+  referral_commission: "brand",
 };
 
 export default async function TransactionsAdminPage({
@@ -59,7 +60,10 @@ export default async function TransactionsAdminPage({
   const processorFeeCents = tx
     .filter((t) => t.type === "processor_fee" && t.account === "platform" && notRefunded(t.job_id))
     .reduce((s, t) => s + t.amount_cents, 0);
-  const platformRevenueCents = platformFeeCents - processorFeeCents;
+  const referralCommissionCents = tx
+    .filter((t) => t.type === "referral_commission" && t.account === "platform" && notRefunded(t.job_id))
+    .reduce((s, t) => s + t.amount_cents, 0);
+  const platformRevenueCents = platformFeeCents + referralCommissionCents - processorFeeCents;
   const providerPayoutCents = tx.filter((t) => t.type === "provider_payout").reduce((s, t) => s + t.amount_cents, 0);
   const refundsCents = tx.filter((t) => t.type === "refund").reduce((s, t) => s + t.amount_cents, 0);
   const tipsCents = tx.filter((t) => t.type === "tip").reduce((s, t) => s + t.amount_cents, 0);
@@ -88,7 +92,7 @@ export default async function TransactionsAdminPage({
         <StatCard
           label="Platform revenue"
           value={formatCents(platformRevenueCents)}
-          sublabel="Platform fees − processor fees, non-refunded"
+          sublabel="Platform fees + referral commissions − processor fees, non-refunded"
           tone="brand"
         />
         <StatCard label="Provider payouts" value={formatCents(providerPayoutCents)} sublabel="Sum of provider_payout transactions" tone="trust" />

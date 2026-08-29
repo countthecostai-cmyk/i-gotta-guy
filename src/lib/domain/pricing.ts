@@ -170,3 +170,27 @@ export function calculatePlatformRevenue(
 ): number {
   return Math.max(0, platformFeeCents - refundedPlatformFeeCents);
 }
+
+/**
+ * CTC referral commission: 10%, off the top of the job amount, when Andre
+ * personally referred the customer to the Guy. Deliberately NOT built on
+ * calculateProviderPayout() — that function models the standard fee as a
+ * customer-side surcharge (added to totalCents, never deducted from the
+ * Guy). A CTC referral is the opposite: a true split of the same service
+ * amount the Guy would otherwise keep in full. Only the base job amount
+ * (service + addons - discount) is split; the tip is never touched and
+ * goes to the Guy in full either way.
+ */
+export const REFERRAL_COMMISSION_PERCENT = 10;
+
+export interface ReferralSplit {
+  referralCommissionCents: number;
+  providerPayoutCents: number;
+}
+
+export function calculateReferralSplit(breakdown: PricingBreakdown): ReferralSplit {
+  const jobAmountCents = sumCents(breakdown.serviceAmountCents, breakdown.addonAmountCents, -breakdown.discountCents);
+  const referralCommissionCents = percentOfCents(jobAmountCents, REFERRAL_COMMISSION_PERCENT);
+  const providerPayoutCents = sumCents(jobAmountCents, -referralCommissionCents, breakdown.tipCents);
+  return { referralCommissionCents, providerPayoutCents };
+}

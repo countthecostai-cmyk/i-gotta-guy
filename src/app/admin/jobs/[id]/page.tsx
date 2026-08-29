@@ -85,6 +85,16 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
             </dl>
           </Card>
 
+          {job.referral_code && (
+            <Card className="border-brand/30 bg-brand/5 p-5">
+              <h2 className="font-display text-base font-semibold text-ink">Referral</h2>
+              <dl className="mt-3 space-y-2 text-sm">
+                <Row label="Code" value={job.referral_code} />
+                <Row label="Commission to Andre (10%)" value={formatCents(job.referral_commission_cents)} />
+              </dl>
+            </Card>
+          )}
+
           <Card className="p-5">
             <h2 className="font-display text-base font-semibold text-ink">Description</h2>
             <p className="mt-2 whitespace-pre-wrap text-sm text-ink-soft">{job.description || "No description provided."}</p>

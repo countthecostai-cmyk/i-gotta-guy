@@ -6,6 +6,7 @@ import { getGuyContext, guyStatusKind } from "../_lib/data";
 import { Badge, Card, EmptyState } from "@/components/ui/primitives";
 import { formatCents } from "@/lib/domain/money";
 import { formatDateTime } from "@/components/guy/format";
+import { PayoutSetupBanner } from "@/components/guy/payout-setup-banner";
 
 export const metadata = { title: "Earnings" };
 
@@ -57,6 +58,13 @@ export default async function GuyEarningsPage() {
         <h1 className="font-display text-2xl font-bold text-ink sm:text-3xl">Earnings</h1>
         <p className="mt-1 text-sm text-ink-soft">Your payout history and running totals.</p>
       </div>
+
+      {Boolean(process.env.STRIPE_SECRET_KEY) && (
+        <PayoutSetupBanner
+          hasAccount={Boolean(guyProfile?.stripe_connect_account_id)}
+          payoutsEnabled={Boolean(guyProfile?.stripe_payouts_enabled)}
+        />
+      )}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <TotalCard label="This week" cents={weekTotal} />

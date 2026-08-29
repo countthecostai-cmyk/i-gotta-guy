@@ -1,8 +1,11 @@
 "use server";
 
 import { z } from "zod";
+import Stripe from "stripe";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { SITE_URL } from "@/lib/config";
 import { ActionError } from "./errors";
 
 async function requireUser() {
@@ -145,4 +148,56 @@ export async function updateGuyProfile(input: { bio?: string; yearsExperience?: 
   }
   revalidatePath("/guy/profile");
   return { success: true };
+}
+
+/**
+ * Creates (or reuses) this Guy's Stripe Connect Express account and returns
+ * a fresh onboarding-link URL to redirect them to. Standard Connect Express
+ * account + Account Links onboarding — the classic, fully-supported hosted
+ * flow, chosen deliberately over Stripe's newer embedded-components pattern
+ * (which needs @stripe/connect-js wired into the UI) since this integration
+ * has to work correctly on the first real transaction with no test-mode
+ * environment available to iterate in. `stripe_payouts_enabled` gets kept
+ * in sync separately by the `account.updated` webhook once onboarding
+ * actually completes — this action only guarantees an account id exists.
+ */
+export async function createGuyPayoutOnboardingLink() {
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  if (!secretKey) throw new ActionError("Payouts aren't configured yet — check back soon.");
+
+  const { supabase, user } = await requireUser();
+  const admin = createAdminClient();
+
+  const { data: guyProfile } = await supabase
+    .from("guy_profiles")
+    .select("id, status, stripe_connect_account_id")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (!guyProfile || guyProfile.status !== "approved") throw new ActionError("You need to be an approved Guy first.");
+
+  const stripe = new Stripe(secretKey, { apiVersion: "2026-07-29.dahlia" as Stripe.LatestApiVersion });
+
+  let accountId = guyProfile.stripe_connect_account_id;
+  if (!accountId) {
+    const account = await stripe.accounts.create({
+      type: "express",
+      country: "US",
+      email: user.email ?? undefined,
+      capabilities: { transfers: { requested: true } },
+      business_type: "individual",
+      metadata: { guy_id: user.id },
+    });
+    accountId = account.id;
+    const { error } = await admin.from("guy_profiles").update({ stripe_connect_account_id: accountId }).eq("id", user.id);
+    if (error) throw new ActionError("Couldn't start payout setup. Please try again.");
+  }
+
+  const link = await stripe.accountLinks.create({
+    account: accountId,
+    type: "account_onboarding",
+    refresh_url: `${SITE_URL}/guy/earnings?payouts=refresh`,
+    return_url: `${SITE_URL}/guy/earnings?payouts=return`,
+  });
+
+  return { url: link.url };
 }

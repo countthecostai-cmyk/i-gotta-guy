@@ -15,7 +15,7 @@ export type PaymentStatus = "pending" | "succeeded" | "failed" | "refunded" | "p
 export type PayoutStatus = "pending" | "in_transit" | "paid" | "failed";
 export type TransactionType =
   | "charge" | "platform_fee" | "provider_payout" | "tip" | "refund"
-  | "discount" | "tax" | "processor_fee" | "adjustment";
+  | "discount" | "tax" | "processor_fee" | "adjustment" | "referral_commission";
 export type LedgerAccount = "customer" | "platform" | "provider";
 
 export interface RequestField {
@@ -67,7 +67,10 @@ export interface Database {
           completed_jobs_count: number; applied_at: string; approved_at: string | null;
           created_at: string; updated_at: string;
         },
-        { id: string; status?: GuyStatus; bio?: string; years_experience?: number | null; approved_at?: string | null }
+        {
+          id: string; status?: GuyStatus; bio?: string; years_experience?: number | null; approved_at?: string | null;
+          stripe_connect_account_id?: string | null; stripe_payouts_enabled?: boolean;
+        }
       >;
       addresses: Table<
         {
@@ -135,6 +138,7 @@ export interface Database {
           requested_at: string; scheduled_start: string | null; scheduled_end: string | null; is_asap: boolean;
           service_amount_cents: number; addon_amount_cents: number; discount_cents: number; tax_cents: number;
           platform_fee_cents: number; tip_cents: number; total_cents: number; promotion_id: string | null;
+          referral_code: string | null; referral_commission_cents: number;
           cancelled_by: string | null; cancellation_reason: string | null; created_at: string; updated_at: string;
         },
         {
@@ -144,6 +148,7 @@ export interface Database {
           scheduled_start?: string | null; scheduled_end?: string | null; is_asap?: boolean;
           service_amount_cents?: number; addon_amount_cents?: number; discount_cents?: number; tax_cents?: number;
           platform_fee_cents?: number; tip_cents?: number; total_cents?: number; promotion_id?: string | null;
+          referral_code?: string | null; referral_commission_cents?: number;
         }
       >;
       job_status_history: Table<

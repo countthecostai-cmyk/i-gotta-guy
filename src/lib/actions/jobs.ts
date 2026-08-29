@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getPaymentProcessor } from "@/lib/payments";
 import {
-  calculatePricing, calculateProviderPayout, type AddonForPricing, type PlatformFeeRule,
+  calculatePricing, calculateProviderPayout, calculateReferralSplit, type AddonForPricing, type PlatformFeeRule,
 } from "@/lib/domain/pricing";
 import { assertTransition, type JobStatus } from "@/lib/domain/job-state-machine";
 import { needsPhotoQuoteFallback, inferQuantity } from "@/lib/domain/request-fields";
@@ -681,7 +681,14 @@ export async function updateJobStatus(jobId: string, nextStatus: JobStatus, note
  * the Guy's own "after" photo, enforced in updateJobStatus) means payout
  * never depends solely on the Guy's own say-so.
  */
-export async function confirmJobCompletion(jobId: string) {
+// The only referral code in use today. Andre gives this out personally when
+// he's the one who connected a customer to a Guy; the customer types it in
+// themselves at confirmation time. A literal allowlist (not a lookup table)
+// on purpose — this is a single-operator referral flag, not a general promo
+// code system (that's what `promotions` is for).
+const VALID_REFERRAL_CODES = new Set(["CTC"]);
+
+export async function confirmJobCompletion(jobId: string, referralCode?: string) {
   const { supabase, user } = await requireUser();
   const admin = createAdminClient();
 
@@ -689,11 +696,16 @@ export async function confirmJobCompletion(jobId: string) {
   if (!job) throw new ActionError("Job not found.");
   assertTransition(job.status as JobStatus, "PAYOUT_PENDING", "customer");
 
+  const normalizedCode = referralCode?.trim().toUpperCase() || null;
+  if (normalizedCode && !VALID_REFERRAL_CODES.has(normalizedCode)) {
+    throw new ActionError("That code isn't valid.");
+  }
+
   // Same atomic conditional-update guard as updateJobStatus — a double-tap
   // or two open tabs must not trigger settleCompletedJob twice.
   const { data: updated, error: updateErr } = await admin
     .from("jobs")
-    .update({ status: "PAYOUT_PENDING" })
+    .update({ status: "PAYOUT_PENDING", referral_code: normalizedCode })
     .eq("id", jobId)
     .eq("status", job.status)
     .select()
@@ -701,7 +713,7 @@ export async function confirmJobCompletion(jobId: string) {
   if (updateErr || !updated) throw new ActionError("This job's status just changed — refresh and try again.");
   await logStatus(admin, jobId, "PAYOUT_PENDING", user.id, "customer confirmed the job is done");
 
-  await settleCompletedJob(admin, { ...job, status: "COMPLETED" } as Job);
+  await settleCompletedJob(admin, { ...job, status: "COMPLETED", referral_code: normalizedCode } as Job);
 
   revalidatePath(`/app/jobs/${jobId}`);
   revalidatePath(`/guy/jobs/${jobId}`);
@@ -767,7 +779,7 @@ export async function settleCompletedJob(admin: ReturnType<typeof createAdminCli
     return;
   }
 
-  const payoutCents = calculateProviderPayout({
+  const breakdown = {
     serviceAmountCents: job.service_amount_cents,
     addonAmountCents: job.addon_amount_cents,
     discountCents: job.discount_cents,
@@ -776,9 +788,16 @@ export async function settleCompletedJob(admin: ReturnType<typeof createAdminCli
     tipCents: job.tip_cents,
     totalCents: job.total_cents,
     isEstimate: false,
-  });
+  };
 
-  await admin.from("jobs").update({ status: "PAYOUT_PENDING" }).eq("id", job.id);
+  // CTC referral jobs split the job amount 90/10 instead of the standard
+  // fee model — see calculateReferralSplit() for why this is deliberately
+  // a separate code path from calculateProviderPayout().
+  const isReferral = job.referral_code === "CTC";
+  const referralCommissionCents = isReferral ? calculateReferralSplit(breakdown).referralCommissionCents : 0;
+  const payoutCents = isReferral ? calculateReferralSplit(breakdown).providerPayoutCents : calculateProviderPayout(breakdown);
+
+  await admin.from("jobs").update({ status: "PAYOUT_PENDING", referral_commission_cents: referralCommissionCents }).eq("id", job.id);
   await logStatus(admin, job.id, "PAYOUT_PENDING", null, "system: settlement started");
 
   const { data: guy } = await admin.from("guy_profiles").select("stripe_connect_account_id, completed_jobs_count").eq("id", job.guy_id!).single();
@@ -797,6 +816,7 @@ export async function settleCompletedJob(admin: ReturnType<typeof createAdminCli
   if (payout.success) {
     await recordLedger(admin, job.id, null, [
       { type: "provider_payout", account: "provider", amount_cents: payoutCents, description: "Provider earnings" },
+      { type: "referral_commission", account: "platform", amount_cents: referralCommissionCents, description: "CTC referral commission (10%)" },
     ]);
     await admin.from("jobs").update({ status: "PAYOUT_COMPLETED" }).eq("id", job.id);
     await logStatus(admin, job.id, "PAYOUT_COMPLETED", null, "system: payout sent");

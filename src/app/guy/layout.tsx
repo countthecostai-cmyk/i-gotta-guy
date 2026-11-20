@@ -6,6 +6,7 @@ import { GuyDesktopNav, GuyMobileNav, type GuyNavItem } from "@/components/guy/g
 import { AvailabilityToggle } from "@/components/guy/availability-toggle";
 import { SignOutButton } from "@/components/guy/sign-out-button";
 import { Badge } from "@/components/ui/primitives";
+import { Wordmark } from "@/components/ui/brand-mark";
 
 // Icon *names* only — see the comment in guy-nav.tsx for why the actual
 // icon components can't be passed as props from this Server Component.
@@ -37,8 +38,8 @@ export default async function GuyLayout({ children }: { children: React.ReactNod
     <div className="min-h-dvh bg-paper pb-20 md:pb-0">
       <header className="sticky top-0 z-30 border-b border-line bg-paper/95 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
-          <Link href="/guy" className="font-display text-lg font-bold text-ink">
-            I Gotta <span className="text-brand">Guy</span>
+          <Link href="/guy">
+            <Wordmark textClassName="text-lg" />
           </Link>
 
           <GuyDesktopNav items={navItems} />

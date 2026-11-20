@@ -3,6 +3,7 @@ import { requireAdminContext } from "./_lib/require-admin";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
 import { AdminMobileNav } from "@/components/admin/AdminMobileNav";
 import { SignOutButton } from "@/components/admin/SignOutButton";
+import { Wordmark } from "@/components/ui/brand-mark";
 import { initials } from "./_lib/format";
 
 export const metadata = {
@@ -29,7 +30,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <div className="flex min-h-screen bg-paper">
       <aside className="hidden w-64 shrink-0 flex-col border-r border-line bg-paper-raised md:flex">
         <Link href="/admin" className="flex items-center gap-2 border-b border-line px-5 py-5">
-          <span className="font-display text-lg font-bold text-ink">I Gotta Guy</span>
+          <Wordmark textClassName="text-lg" />
         </Link>
         <div className="flex-1 overflow-y-auto">
           <AdminSidebar badges={badges} />
@@ -50,8 +51,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between gap-3 border-b border-line bg-paper-raised px-4 py-3 md:hidden">
-          <Link href="/admin" className="font-display text-base font-bold text-ink">
-            I Gotta Guy — Admin
+          <Link href="/admin" className="flex items-center gap-2">
+            <Wordmark textClassName="text-base" />
+            <span className="text-sm font-medium text-ink-soft">Admin</span>
           </Link>
           <SignOutButton />
         </header>

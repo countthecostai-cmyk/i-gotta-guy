@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Menu, X } from "lucide-react";
 import { LinkButton } from "@/components/marketing/link-button";
-import { SITE_NAME } from "@/lib/config";
+import { Wordmark } from "@/components/ui/brand-mark";
 
 const NAV_LINKS = [
   { href: "/services", label: "Services" },
@@ -52,7 +52,7 @@ export function MobileNav({ isSignedIn }: { isSignedIn: boolean }) {
           />
           <div className="relative ml-auto flex h-full w-full max-w-xs flex-col bg-paper-raised p-6 shadow-xl">
             <div className="flex items-center justify-between">
-              <span className="font-display text-lg font-bold text-ink">{SITE_NAME}</span>
+              <Wordmark textClassName="text-lg" />
               <button
                 type="button"
                 onClick={() => setOpen(false)}

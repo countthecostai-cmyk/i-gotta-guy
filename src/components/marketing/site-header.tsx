@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { isSupabaseConfigured, SITE_NAME } from "@/lib/config";
+import { isSupabaseConfigured } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
 import { LinkButton } from "@/components/marketing/link-button";
 import { MobileNav } from "@/components/marketing/mobile-nav";
+import { Wordmark } from "@/components/ui/brand-mark";
 
 const NAV_LINKS = [
   { href: "/services", label: "Services" },
@@ -31,8 +32,8 @@ export async function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-paper/95 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        <Link href="/" className="font-display text-lg font-extrabold tracking-tight text-ink">
-          {SITE_NAME}
+        <Link href="/">
+          <Wordmark textClassName="text-lg" />
         </Link>
 
         <nav className="hidden items-center gap-1 md:flex" aria-label="Primary">

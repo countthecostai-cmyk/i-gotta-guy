@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Home, ClipboardList, MapPin, User } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Wordmark } from "@/components/ui/brand-mark";
 import { NotificationBell } from "./notification-bell";
 
 const NAV_ITEMS = [
@@ -29,10 +30,8 @@ export function AppShell({
     <div className="flex min-h-full flex-col">
       <header className="sticky top-0 z-40 border-b border-line bg-paper/95 backdrop-blur supports-[backdrop-filter]:bg-paper/80">
         <div className="mx-auto flex h-16 max-w-3xl items-center justify-between px-4">
-          <Link href="/app" className="flex items-center gap-2">
-            <span className="font-display text-lg font-extrabold text-ink">
-              I Gotta <span className="text-brand">Guy</span>
-            </span>
+          <Link href="/app">
+            <Wordmark textClassName="text-lg" />
           </Link>
           <div className="flex items-center gap-1">
             <nav className="hidden items-center gap-1 md:flex">

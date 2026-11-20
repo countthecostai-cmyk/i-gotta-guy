@@ -1,20 +1,26 @@
 @import "tailwindcss";
 
 :root {
-  /* Brand — warm, local, confident. Not generic SaaS blue/purple. */
-  --color-ink: #191510;
-  --color-ink-soft: #4a4239;
-  --color-paper: #fbf7f1;
+  /* Brand — I Gotta Guy Lawn Service: fresh-cut grass green, confident and
+     local. Matches the logo/flyer's green-on-white lawn-care identity
+     rather than a generic SaaS palette. Two greens do double duty, same
+     as the logo's own bright-blade / deep-shadow treatment: --color-brand
+     is the lively "fresh grass" green used for primary actions, and
+     --color-trust is a near-black pine green used for trust/secondary
+     accents, so the two never get confused even though both are green. */
+  --color-ink: #152318;
+  --color-ink-soft: #4b5a4e;
+  --color-paper: #f6faf5;
   --color-paper-raised: #ffffff;
-  --color-line: #e8e0d3;
+  --color-line: #dce7dc;
 
-  --color-brand: #dd5b25;
-  --color-brand-dark: #b4441a;
-  --color-brand-light: #fdece0;
+  --color-brand: #2e9a42;
+  --color-brand-dark: #1f7730;
+  --color-brand-light: #e3f6e4;
 
-  --color-trust: #1f6f54;
-  --color-trust-dark: #16523e;
-  --color-trust-light: #e3f2ea;
+  --color-trust: #163d24;
+  --color-trust-dark: #0c2716;
+  --color-trust-light: #e6efe7;
 
   --color-warn: #b3541e;
   --color-danger: #b3261e;

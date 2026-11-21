@@ -37,7 +37,7 @@ export function SiteFooter() {
         <div className="grid grid-cols-2 gap-8 sm:grid-cols-4">
           <div className="col-span-2 sm:col-span-1">
             <Link href="/">
-              <Wordmark textClassName="text-lg" />
+              <Wordmark iconClassName="h-16 w-16" />
             </Link>
             <p className="mt-2 max-w-xs text-sm text-ink-soft">{SITE_TAGLINE}</p>
           </div>

@@ -4,6 +4,13 @@ import type { Database } from "@/types/database";
 
 const PROTECTED_PREFIXES = ["/app", "/guy", "/admin"];
 
+// Plain `path.startsWith(p)` would also match "/apple-icon" against "/app"
+// (it's a literal character prefix) and incorrectly gate it behind login —
+// require an exact segment match instead.
+function isProtectedPath(path: string): boolean {
+  return PROTECTED_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
+}
+
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
 
@@ -16,8 +23,7 @@ export async function proxy(request: NextRequest) {
   // those requests to a friendly explainer instead of a 500.
   if (!supabaseUrl || !supabaseAnonKey) {
     const path = request.nextUrl.pathname;
-    const isProtected = PROTECTED_PREFIXES.some((p) => path.startsWith(p));
-    if (isProtected) {
+    if (isProtectedPath(path)) {
       return NextResponse.rewrite(new URL("/setup-required", request.url));
     }
     return response;
@@ -43,15 +49,14 @@ export async function proxy(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
-  const isProtected = PROTECTED_PREFIXES.some((p) => path.startsWith(p));
 
-  if (isProtected && !user) {
+  if (isProtectedPath(path) && !user) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", path);
     return NextResponse.redirect(loginUrl);
   }
 
-  if (path.startsWith("/admin") && user) {
+  if ((path === "/admin" || path.startsWith("/admin/")) && user) {
     const { data: profile } = await supabase
       .from("profiles")
       .select("role")
